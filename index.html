@@ -13,22 +13,24 @@
 </head>
 <body>
   <main class="app">
-    <header class="header">
-      <h1>HD Regenradar</h1>
-      <p>Fester Ausschnitt rund um Heidelberg</p>
-    </header>
-
     <section class="viewport" aria-label="Radaransicht Heidelberg">
       <div id="map" class="map" aria-hidden="true"></div>
       <img id="radarImage" class="radar" alt="Aktuelles Niederschlagsradar fuer Heidelberg" loading="eager" decoding="async">
-      <div id="loadingState" class="overlay">Lade Radarbild...</div>
+      <div id="loadingState" class="overlay" aria-hidden="true"></div>
     </section>
 
-    <section class="controls" aria-label="Steuerung">
-      <button id="refreshBtn" type="button">Jetzt aktualisieren</button>
-      <div class="meta">
-        <p id="timestamp">Stand: --:--</p>
-        <p>Quelle: DWD</p>
+    <section class="controls" aria-label="Filmsteuerung">
+      <button id="filmBtn" type="button">Film starten</button>
+    </section>
+
+    <section class="timeline" aria-label="Radar Zeitleiste">
+      <div id="timelineTrack" class="timeline-track">
+        <div id="timelineMarker" class="timeline-marker" aria-hidden="true"></div>
+      </div>
+      <div class="timeline-labels" aria-hidden="true">
+        <span id="timelineStart">--:--</span>
+        <span id="timelineMid">--:--</span>
+        <span id="timelineEnd">--:--</span>
       </div>
     </section>
   </main>
