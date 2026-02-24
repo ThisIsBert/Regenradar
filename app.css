@@ -99,9 +99,10 @@ body {
 .controls {
   margin-top: 1rem;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 button {
@@ -117,11 +118,15 @@ button:active {
   transform: translateY(1px);
 }
 
+button[disabled] {
+  opacity: 0.55;
+}
+
 .meta p {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
-  text-align: right;
+  text-align: left;
 }
 
 .meta p + p {
