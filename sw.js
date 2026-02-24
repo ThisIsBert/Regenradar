@@ -1,4 +1,4 @@
-const CACHE_NAME = "regenradar-shell-v3";
+const CACHE_NAME = "regenradar-shell-v4";
 const OSM_TILE_CACHE = "regenradar-osm-v1";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
@@ -15,6 +15,12 @@ const SHELL_FILES = [
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES)));
   self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -53,8 +59,48 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(cacheFirst(request, CACHE_NAME, "./index.html"));
+  const isSameOrigin = url.origin === self.location.origin;
+
+  if (request.mode === "navigate") {
+    event.respondWith(networkFirst(request, CACHE_NAME, "./index.html"));
+    return;
+  }
+
+  if (isSameOrigin) {
+    event.respondWith(networkFirst(request, CACHE_NAME));
+    return;
+  }
+
+  event.respondWith(cacheFirst(request, CACHE_NAME));
 });
+
+async function networkFirst(request, cacheName, fallbackUrl) {
+  const cache = await caches.open(cacheName);
+
+  try {
+    const response = await fetch(request);
+
+    if (response && response.ok) {
+      cache.put(request, response.clone());
+    }
+
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) {
+      return cached;
+    }
+
+    if (fallbackUrl) {
+      const fallback = await cache.match(fallbackUrl);
+      if (fallback) {
+        return fallback;
+      }
+    }
+
+    throw error;
+  }
+}
 
 async function cacheFirst(request, cacheName, fallbackUrl) {
   const cache = await caches.open(cacheName);

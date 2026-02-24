@@ -521,8 +521,41 @@
   );
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(function () {
-      // Kein Blocking: App soll auch ohne SW laufen.
+    let reloading = false;
+
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (reloading) {
+        return;
+      }
+
+      reloading = true;
+      window.location.reload();
     });
+
+    navigator.serviceWorker
+      .register("./sw.js")
+      .then(function (registration) {
+        registration.update();
+
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        registration.addEventListener("updatefound", function () {
+          const newWorker = registration.installing;
+          if (!newWorker) {
+            return;
+          }
+
+          newWorker.addEventListener("statechange", function () {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              newWorker.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      })
+      .catch(function () {
+        // Kein Blocking: App soll auch ohne SW laufen.
+      });
   }
 })();
