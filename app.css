@@ -93,7 +93,7 @@ body {
 }
 
 .controls {
-  margin-top: 0.9rem;
+  margin-top: 0.65rem;
   display: flex;
   justify-content: center;
 }
@@ -113,6 +113,30 @@ button:active {
 
 button[disabled] {
   opacity: 0.55;
+}
+
+.mode-switch {
+  margin-top: 0.9rem;
+  display: inline-flex;
+  width: 100%;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.mode-btn {
+  min-width: 5.6rem;
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.mode-btn.active {
+  color: #00111f;
+  background: linear-gradient(180deg, #93d0fb, var(--accent));
+  border-color: transparent;
 }
 
 .timeline {
