@@ -1,0 +1,23 @@
+{
+  "name": "HD Regenradar",
+  "short_name": "Regenradar",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#071523",
+  "theme_color": "#0d2a45",
+  "description": "Datensparsame PWA mit festem DWD-Radarfenster fuer Heidelberg.",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
