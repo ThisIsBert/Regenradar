@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d2a45">
+  <title>HD Regenradar</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <h1>HD Regenradar</h1>
+      <p>Fester Ausschnitt rund um Heidelberg</p>
+    </header>
+
+    <section class="viewport" aria-label="Radaransicht Heidelberg">
+      <div id="map" class="map" aria-hidden="true"></div>
+      <img id="radarImage" class="radar" alt="Aktuelles Niederschlagsradar fuer Heidelberg" loading="eager" decoding="async">
+      <div id="loadingState" class="overlay">Lade Radarbild...</div>
+    </section>
+
+    <section class="controls" aria-label="Steuerung">
+      <button id="refreshBtn" type="button">Jetzt aktualisieren</button>
+      <div class="meta">
+        <p id="timestamp">Stand: --:--</p>
+        <p>Quelle: DWD</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
