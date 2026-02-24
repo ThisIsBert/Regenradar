@@ -6,27 +6,36 @@
     [49.17, 8.05],
     [49.63, 8.95]
   ];
+
   const STEP_MINUTES = 5;
   const STEP_MS = STEP_MINUTES * 60 * 1000;
-  const AUTO_REFRESH_MS = STEP_MS;
   const FILM_WINDOW_MINUTES = 60;
   const FILM_FRAME_DELAY_MS = 350;
   const FILM_PARALLEL_REQUESTS = 5;
   const FILM_START_THRESHOLD = 8;
+  const PULL_REFRESH_THRESHOLD = 90;
 
   const mapEl = document.getElementById("map");
   const radarImage = document.getElementById("radarImage");
-  const refreshBtn = document.getElementById("refreshBtn");
   const filmBtn = document.getElementById("filmBtn");
-  const timestamp = document.getElementById("timestamp");
-  const filmStatus = document.getElementById("filmStatus");
   const loadingState = document.getElementById("loadingState");
+  const timelineTrack = document.getElementById("timelineTrack");
+  const timelineMarker = document.getElementById("timelineMarker");
+  const timelineStart = document.getElementById("timelineStart");
+  const timelineMid = document.getElementById("timelineMid");
+  const timelineEnd = document.getElementById("timelineEnd");
 
   let map;
-  let autoRefreshTimerId;
   let filmTimerId;
   let isFilmPlaying = false;
   let currentFilmRunId = 0;
+  let touchStartY = 0;
+  let pullTriggered = false;
+  let isScrubbing = false;
+
+  let currentAnchorTime = null;
+  let currentFrames = [];
+
   const frameCache = new Map();
 
   function getFiveMinuteSlot(date) {
@@ -42,10 +51,6 @@
 
   function formatIsoTime(date) {
     return date.toISOString().replace(/\.\d{3}Z$/, "Z");
-  }
-
-  function setFilmStatus(text) {
-    filmStatus.textContent = `Film: ${text}`;
   }
 
   function getMapState() {
@@ -86,7 +91,6 @@
 
   function initMap() {
     if (!window.L) {
-      loadingState.textContent = "Karte konnte nicht geladen werden";
       return;
     }
 
@@ -115,24 +119,55 @@
     }).addTo(map);
   }
 
-  function updateNowTimestamp(date) {
-    timestamp.textContent = `Stand: ${formatTime(date)}`;
+  function updateTimelineLabels(anchorTime) {
+    const start = new Date(anchorTime.getTime() - FILM_WINDOW_MINUTES * 60 * 1000);
+    const end = new Date(anchorTime.getTime() + FILM_WINDOW_MINUTES * 60 * 1000);
+    timelineStart.textContent = formatTime(start);
+    timelineMid.textContent = formatTime(anchorTime);
+    timelineEnd.textContent = formatTime(end);
   }
 
-  function updateFilmTimestamp(date) {
-    timestamp.textContent = `Filmzeit: ${formatTime(date)}`;
+  function updateTimelineMarkerByTime(frameTime, anchorTime) {
+    const frameMs = frameTime.getTime();
+    const anchorMs = anchorTime.getTime();
+    const minMs = anchorMs - FILM_WINDOW_MINUTES * 60 * 1000;
+    const maxMs = anchorMs + FILM_WINDOW_MINUTES * 60 * 1000;
+    const clamped = Math.max(minMs, Math.min(maxMs, frameMs));
+    const ratio = (clamped - minMs) / (maxMs - minMs);
+    timelineMarker.style.left = `${ratio * 100}%`;
+  }
+
+  function stopFilmTimer() {
+    if (filmTimerId) {
+      window.clearInterval(filmTimerId);
+      filmTimerId = undefined;
+    }
+  }
+
+  function showFrame(frame, index, anchorTime) {
+    if (!frame) {
+      return;
+    }
+
+    radarImage.onload = null;
+    radarImage.onerror = null;
+    radarImage.src = frame.url;
+    updateTimelineMarkerByTime(frame.frameTime, anchorTime);
+  }
+
+  function setFilmIdleButton() {
+    filmBtn.disabled = false;
+    filmBtn.textContent = "Film starten";
   }
 
   function loadCurrentRadar() {
-    if (!map || isFilmPlaying) {
+    if (!map || isFilmPlaying || isScrubbing) {
       return;
     }
 
     loadingState.classList.remove("hidden");
-    loadingState.textContent = "Lade Radarbild...";
 
-    const now = new Date();
-    const slot = new Date(getFiveMinuteSlot(now).getTime() - STEP_MS);
+    const slot = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
     const state = getMapState();
     const url = buildRadarUrl({
       layer: NOW_LAYER,
@@ -144,26 +179,25 @@
 
     radarImage.onload = function () {
       loadingState.classList.add("hidden");
-      updateNowTimestamp(slot);
-      setFilmStatus("aus");
+      currentAnchorTime = slot;
+      updateTimelineLabels(slot);
+      updateTimelineMarkerByTime(slot, slot);
+      currentFrames = [];
+      setFilmIdleButton();
     };
 
     radarImage.onerror = function () {
       loadingState.classList.remove("hidden");
-      loadingState.textContent = "Radar derzeit nicht verfuegbar";
     };
 
     radarImage.src = url;
   }
 
-  function createFilmTimeline() {
-    const anchor = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
+  function createFilmTimeline(anchorTime) {
     const timeline = [];
-
     for (let minute = -FILM_WINDOW_MINUTES; minute <= FILM_WINDOW_MINUTES; minute += STEP_MINUTES) {
-      timeline.push(new Date(anchor.getTime() + minute * 60 * 1000));
+      timeline.push(new Date(anchorTime.getTime() + minute * 60 * 1000));
     }
-
     return timeline;
   }
 
@@ -202,8 +236,8 @@
     return promise;
   }
 
-  async function buildFilmFramesParallel(runId, onUpdate) {
-    const timeline = createFilmTimeline();
+  async function buildFilmFramesParallel(runId, anchorTime, onUpdate) {
+    const timeline = createFilmTimeline(anchorTime);
     const state = getMapState();
     const frameByIndex = new Array(timeline.length);
     let nextIndex = 0;
@@ -213,10 +247,8 @@
       if (runId !== currentFilmRunId) {
         return;
       }
-
-      const frames = frameByIndex.filter(Boolean);
       onUpdate({
-        frames,
+        frames: frameByIndex.filter(Boolean),
         loadedCount,
         totalCount: timeline.length
       });
@@ -252,90 +284,101 @@
     return frameByIndex.filter(Boolean);
   }
 
-  function stopFilmPlayback(options) {
-    const resetToNow = options && options.resetToNow;
-    currentFilmRunId += 1;
-    isFilmPlaying = false;
-    filmBtn.textContent = "Film -60/+60 min";
-    filmBtn.disabled = false;
-
-    if (filmTimerId) {
-      window.clearInterval(filmTimerId);
-      filmTimerId = undefined;
-    }
-
-    if (resetToNow) {
-      loadCurrentRadar();
-    }
-
-    if (!autoRefreshTimerId) {
-      autoRefreshTimerId = window.setInterval(loadCurrentRadar, AUTO_REFRESH_MS);
-    }
-  }
-
-  function playFrames(frames) {
+  function playFramesOnce(getFrames, anchorTime, isLoadingDone) {
     let index = 0;
 
-    const renderFrame = function () {
+    const tick = function () {
+      const frames = getFrames();
       if (!frames.length) {
         return;
       }
 
       if (index >= frames.length) {
-        index = 0;
+        index = frames.length - 1;
       }
 
-      const frame = frames[index];
-      radarImage.src = frame.url;
-      updateFilmTimestamp(frame.frameTime);
-      setFilmStatus(`${index + 1}/${frames.length}`);
-      index = (index + 1) % frames.length;
+      showFrame(frames[index], index, anchorTime);
+
+      const nextIndex = index + 1;
+      if (nextIndex < frames.length) {
+        index = nextIndex;
+        return;
+      }
+
+      if (isLoadingDone()) {
+        stopFilmTimer();
+        isFilmPlaying = false;
+        setFilmIdleButton();
+      }
     };
 
-    renderFrame();
-    filmTimerId = window.setInterval(renderFrame, FILM_FRAME_DELAY_MS);
+    tick();
+    filmTimerId = window.setInterval(tick, FILM_FRAME_DELAY_MS);
   }
 
-  async function toggleFilm() {
-    if (!map) {
+  function getRatioFromClientX(clientX) {
+    const rect = timelineTrack.getBoundingClientRect();
+    if (!rect.width) {
+      return 0;
+    }
+    const raw = (clientX - rect.left) / rect.width;
+    return Math.max(0, Math.min(1, raw));
+  }
+
+  function seekByRatio(ratio) {
+    if (!currentFrames.length || !currentAnchorTime) {
       return;
     }
 
-    if (isFilmPlaying) {
-      stopFilmPlayback({ resetToNow: true });
+    const index = Math.max(0, Math.min(currentFrames.length - 1, Math.round(ratio * (currentFrames.length - 1))));
+    showFrame(currentFrames[index], index, currentAnchorTime);
+  }
+
+  async function startFilm() {
+    if (!map || isFilmPlaying) {
       return;
     }
 
-    isFilmPlaying = true;
+    stopFilmTimer();
     currentFilmRunId += 1;
     const runId = currentFilmRunId;
+    const anchorTime = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
 
-    filmBtn.textContent = "Film stoppen";
+    isFilmPlaying = true;
     filmBtn.disabled = true;
+    filmBtn.textContent = "Film laden...";
     loadingState.classList.remove("hidden");
-    loadingState.textContent = "Lade Filmframes...";
-    setFilmStatus("lade");
 
-    if (autoRefreshTimerId) {
-      window.clearInterval(autoRefreshTimerId);
-      autoRefreshTimerId = undefined;
-    }
+    currentAnchorTime = anchorTime;
+    updateTimelineLabels(anchorTime);
 
     const liveFrames = [];
     let started = false;
-    const frames = await buildFilmFramesParallel(runId, function (update) {
+    let loadingDone = false;
+
+    const frames = await buildFilmFramesParallel(runId, anchorTime, function (update) {
       if (runId !== currentFilmRunId) {
         return;
       }
 
       liveFrames.length = 0;
       liveFrames.push.apply(liveFrames, update.frames);
-      setFilmStatus(`lade ${update.loadedCount}/${update.totalCount}`);
+      filmBtn.textContent = `Film laden ${update.loadedCount}/${update.totalCount}`;
 
       if (!started && liveFrames.length >= FILM_START_THRESHOLD) {
         started = true;
+        filmBtn.disabled = false;
+        filmBtn.textContent = "Film laeuft";
         loadingState.classList.add("hidden");
-        playFrames(liveFrames);
+        playFramesOnce(
+          function () {
+            return liveFrames;
+          },
+          anchorTime,
+          function () {
+            return loadingDone;
+          }
+        );
       }
     });
 
@@ -343,19 +386,73 @@
       return;
     }
 
-    filmBtn.disabled = false;
+    loadingDone = true;
+    currentFrames = frames;
 
     if (frames.length < 3) {
       loadingState.classList.remove("hidden");
-      loadingState.textContent = "Film derzeit nicht verfuegbar";
-      stopFilmPlayback({ resetToNow: false });
+      isFilmPlaying = false;
+      setFilmIdleButton();
       return;
     }
 
     if (!started) {
       loadingState.classList.add("hidden");
-      playFrames(frames);
+      filmBtn.disabled = false;
+      filmBtn.textContent = "Film laeuft";
+      playFramesOnce(
+        function () {
+          return frames;
+        },
+        anchorTime,
+        function () {
+          return true;
+        }
+      );
+      return;
     }
+
+    currentFrames = liveFrames.slice();
+    filmBtn.disabled = false;
+  }
+
+  function initTimelineScrub() {
+    if (!timelineTrack) {
+      return;
+    }
+
+    timelineTrack.addEventListener("pointerdown", function (event) {
+      if (!currentFrames.length) {
+        return;
+      }
+
+      isScrubbing = true;
+      stopFilmTimer();
+      isFilmPlaying = false;
+      setFilmIdleButton();
+
+      timelineTrack.setPointerCapture(event.pointerId);
+      seekByRatio(getRatioFromClientX(event.clientX));
+    });
+
+    timelineTrack.addEventListener("pointermove", function (event) {
+      if (!isScrubbing) {
+        return;
+      }
+      seekByRatio(getRatioFromClientX(event.clientX));
+    });
+
+    timelineTrack.addEventListener("pointerup", function (event) {
+      if (!isScrubbing) {
+        return;
+      }
+      seekByRatio(getRatioFromClientX(event.clientX));
+      isScrubbing = false;
+    });
+
+    timelineTrack.addEventListener("pointercancel", function () {
+      isScrubbing = false;
+    });
   }
 
   function debounce(fn, delayMs) {
@@ -366,19 +463,47 @@
     };
   }
 
-  refreshBtn.addEventListener("click", function () {
-    stopFilmPlayback({ resetToNow: false });
-    loadCurrentRadar();
-    if (!autoRefreshTimerId) {
-      autoRefreshTimerId = window.setInterval(loadCurrentRadar, AUTO_REFRESH_MS);
-    }
-  });
+  filmBtn.addEventListener("click", startFilm);
 
-  filmBtn.addEventListener("click", toggleFilm);
+  mapEl.addEventListener(
+    "touchstart",
+    function (event) {
+      if (event.touches.length !== 1 || isFilmPlaying || isScrubbing) {
+        return;
+      }
+      touchStartY = event.touches[0].clientY;
+      pullTriggered = false;
+    },
+    { passive: true }
+  );
+
+  mapEl.addEventListener(
+    "touchmove",
+    function (event) {
+      if (isFilmPlaying || isScrubbing || pullTriggered || event.touches.length !== 1) {
+        return;
+      }
+
+      const deltaY = event.touches[0].clientY - touchStartY;
+      if (deltaY > PULL_REFRESH_THRESHOLD) {
+        pullTriggered = true;
+        loadCurrentRadar();
+      }
+    },
+    { passive: true }
+  );
+
+  mapEl.addEventListener(
+    "touchend",
+    function () {
+      pullTriggered = false;
+    },
+    { passive: true }
+  );
 
   initMap();
+  initTimelineScrub();
   loadCurrentRadar();
-  autoRefreshTimerId = window.setInterval(loadCurrentRadar, AUTO_REFRESH_MS);
 
   window.addEventListener(
     "resize",
@@ -389,7 +514,7 @@
 
       map.invalidateSize(false);
       frameCache.clear();
-      if (!isFilmPlaying) {
+      if (!isFilmPlaying && !isScrubbing) {
         loadCurrentRadar();
       }
     }, 250)
