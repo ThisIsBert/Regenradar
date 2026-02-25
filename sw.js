@@ -1,4 +1,4 @@
-const CACHE_NAME = "regenradar-shell-v11";
+const CACHE_NAME = "regenradar-shell-v12";
 const OSM_TILE_CACHE = "regenradar-osm-v1";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
