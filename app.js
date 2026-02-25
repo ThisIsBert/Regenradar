@@ -1,10 +1,12 @@
 (function () {
   const MODE_RADAR = "radar";
   const MODE_CLOUD = "cloud";
+  const MODE_RADOLAN = "radolan";
 
   const WMS_BASE_URL = "https://maps.dwd.de/geoserver/wms";
   const NOW_LAYER = "dwd:Niederschlagsradar";
   const FILM_LAYER = "dwd:Radar_rv_product_1x1km_ger";
+  const RADOLAN_LAYER = "dwd:RADOLAN-RY";
   const CLOUD_API_URL = "https://api.open-meteo.com/v1/forecast";
   const CLOUD_GRID_COLS = 8;
   const CLOUD_GRID_ROWS = 8;
@@ -39,6 +41,7 @@
   const timelineEnd = document.getElementById("timelineEnd");
   const modeRadarBtn = document.getElementById("modeRadarBtn");
   const modeCloudBtn = document.getElementById("modeCloudBtn");
+  const modeRadolanBtn = document.getElementById("modeRadolanBtn");
 
   let map;
   let filmTimerId;
@@ -217,12 +220,30 @@
     filmBtn.textContent = "Film starten";
   }
 
+  function getCurrentRadarLikeLayer(mode) {
+    if (mode === MODE_RADOLAN) {
+      return RADOLAN_LAYER;
+    }
+    return mode === MODE_RADAR ? NOW_LAYER : "";
+  }
+
+  function getCurrentFilmLayer(mode) {
+    if (mode === MODE_RADOLAN) {
+      return RADOLAN_LAYER;
+    }
+    return mode === MODE_RADAR ? FILM_LAYER : "";
+  }
+
   function setModeButtons() {
     const radarActive = currentMode === MODE_RADAR;
+    const cloudActive = currentMode === MODE_CLOUD;
+    const radolanActive = currentMode === MODE_RADOLAN;
     modeRadarBtn.classList.toggle("active", radarActive);
-    modeCloudBtn.classList.toggle("active", !radarActive);
+    modeCloudBtn.classList.toggle("active", cloudActive);
+    modeRadolanBtn.classList.toggle("active", radolanActive);
     modeRadarBtn.setAttribute("aria-pressed", String(radarActive));
-    modeCloudBtn.setAttribute("aria-pressed", String(!radarActive));
+    modeCloudBtn.setAttribute("aria-pressed", String(cloudActive));
+    modeRadolanBtn.setAttribute("aria-pressed", String(radolanActive));
   }
 
   function createFilmTimeline(anchorTime) {
@@ -498,7 +519,7 @@
     return preloadImageFrame(key, url, frameTime);
   }
 
-  async function buildRadarFilmFramesParallel(runId, anchorTime, onUpdate) {
+  async function buildRadarFilmFramesParallel(runId, anchorTime, layer, onUpdate) {
     const timeline = createFilmTimeline(anchorTime);
     const state = getMapState();
     const frameByIndex = new Array(timeline.length);
@@ -526,7 +547,7 @@
         }
 
         try {
-          const frame = await preloadRadarFrame(FILM_LAYER, timeline[index], state);
+          const frame = await preloadRadarFrame(layer, timeline[index], state);
           frameByIndex[index] = frame;
           loadedCount += 1;
           publish();
@@ -629,8 +650,13 @@
     showFrame(currentFrames[index], index, currentAnchorTime);
   }
 
-  async function loadCurrentRadar() {
-    if (!map || isFilmPlaying || isScrubbing || currentMode !== MODE_RADAR) {
+  async function loadCurrentRadarLike() {
+    if (!map || isFilmPlaying || isScrubbing) {
+      return;
+    }
+
+    const layer = getCurrentRadarLikeLayer(currentMode);
+    if (!layer) {
       return;
     }
 
@@ -639,7 +665,7 @@
     const slot = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
     const state = getMapState();
     const url = buildRadarUrl({
-      layer: NOW_LAYER,
+      layer,
       bbox: state.bbox,
       width: state.width,
       height: state.height,
@@ -696,7 +722,7 @@
       return;
     }
 
-    loadCurrentRadar();
+    loadCurrentRadarLike();
   }
 
   async function startFilm() {
@@ -723,9 +749,35 @@
     let loadingDone = false;
 
     const startThreshold = modeAtStart === MODE_CLOUD ? CLOUD_START_THRESHOLD : FILM_START_THRESHOLD;
-    const frameBuilder = modeAtStart === MODE_CLOUD ? buildCloudFramesProgressive : buildRadarFilmFramesParallel;
+    const radarLikeFilmLayer = getCurrentFilmLayer(modeAtStart);
 
-    const frames = await frameBuilder(runId, anchorTime, function (update) {
+    const frames = await (modeAtStart === MODE_CLOUD
+      ? buildCloudFramesProgressive(runId, anchorTime, function (update) {
+          if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
+            return;
+          }
+
+          liveFrames.length = 0;
+          liveFrames.push.apply(liveFrames, update.frames);
+          filmBtn.textContent = `Film laden ${update.loadedCount}/${update.totalCount}`;
+
+          if (!started && liveFrames.length >= startThreshold) {
+            started = true;
+            filmBtn.disabled = false;
+            filmBtn.textContent = "Film laeuft";
+            loadingState.classList.add("hidden");
+            playFramesOnce(
+              function () {
+                return liveFrames;
+              },
+              anchorTime,
+              function () {
+                return loadingDone;
+              }
+            );
+          }
+        })
+      : buildRadarFilmFramesParallel(runId, anchorTime, radarLikeFilmLayer, function (update) {
       if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
         return;
       }
@@ -749,7 +801,7 @@
           }
         );
       }
-    });
+    }));
 
     if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
       return;
@@ -853,6 +905,10 @@
 
   modeCloudBtn.addEventListener("click", function () {
     switchMode(MODE_CLOUD);
+  });
+
+  modeRadolanBtn.addEventListener("click", function () {
+    switchMode(MODE_RADOLAN);
   });
 
   filmBtn.addEventListener("click", startFilm);
