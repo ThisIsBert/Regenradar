@@ -1,4 +1,4 @@
-const CACHE_NAME = "regenradar-shell-v12";
+const CACHE_NAME = "regenradar-shell-v13";
 const OSM_TILE_CACHE = "regenradar-osm-v1";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
@@ -46,10 +46,6 @@ self.addEventListener("fetch", (event) => {
 
   // Dynamische Wetterdaten niemals dauerhaft im SW cachen, damit sie frisch bleiben.
   if (request.url.includes("maps.dwd.de/geoserver/wms")) {
-    return;
-  }
-
-  if (request.url.includes("api.open-meteo.com/v1/forecast")) {
     return;
   }
 
