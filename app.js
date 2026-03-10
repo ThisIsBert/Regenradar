@@ -6,19 +6,21 @@
   const NOW_LAYER = "dwd:Niederschlagsradar";
   const FILM_LAYER = "dwd:Radar_rv_product_1x1km_ger";
   const RADOLAN_LAYER = "dwd:RADOLAN-RY";
-  const FIXED_BOUNDS = [
-    [49.17, 8.05],
-    [49.63, 8.95]
+  const HEIDELBERG_CENTER = [49.39875, 8.67243];
+  const INITIAL_BOUNDS = [
+    [49.16875, 8.22243],
+    [49.62875, 9.12243]
   ];
+  const MAX_ZOOM_STEPS = 3;
 
   const STEP_MINUTES = 5;
   const STEP_MS = STEP_MINUTES * 60 * 1000;
   const FILM_WINDOW_MINUTES = 60;
   const FILM_PARALLEL_REQUESTS = 5;
   const PULL_REFRESH_THRESHOLD = 90;
+  const RADAR_PADDING_FACTOR = 0.08;
 
   const mapEl = document.getElementById("map");
-  const radarImage = document.getElementById("radarImage");
   const loadingState = document.getElementById("loadingState");
   const timelineTrack = document.getElementById("timelineTrack");
   const timelineMarker = document.getElementById("timelineMarker");
@@ -29,11 +31,15 @@
   const modeRadolanBtn = document.getElementById("modeRadolanBtn");
 
   let map;
+  let radarOverlayLayer;
+  let radarBaseBounds;
   let currentFilmRunId = 0;
   let touchStartY = 0;
   let pullTriggered = false;
   let isScrubbing = false;
   let currentMode = MODE_RADAR;
+  let pendingSeekRatio = null;
+  let seekRafId = 0;
 
   let currentAnchorTime = null;
   let currentFrames = [];
@@ -55,10 +61,10 @@
     return date.toISOString().replace(/\.\d{3}Z$/, "Z");
   }
 
-  function getMapState() {
-    const bounds = map.getBounds();
-    const sw = map.options.crs.project(bounds.getSouthWest());
-    const ne = map.options.crs.project(bounds.getNorthEast());
+  function getRadarRequestState() {
+    const requestBounds = radarBaseBounds || L.latLngBounds(INITIAL_BOUNDS);
+    const sw = map.options.crs.project(requestBounds.getSouthWest());
+    const ne = map.options.crs.project(requestBounds.getNorthEast());
     const size = map.getSize();
 
     return {
@@ -97,27 +103,42 @@
     }
 
     map = L.map(mapEl, {
-      zoomControl: false,
-      dragging: false,
-      scrollWheelZoom: false,
-      doubleClickZoom: false,
-      boxZoom: false,
-      keyboard: false,
-      tap: false,
-      touchZoom: false
+      zoomControl: true,
+      dragging: true,
+      scrollWheelZoom: true,
+      doubleClickZoom: true,
+      boxZoom: true,
+      keyboard: true,
+      tap: true,
+      touchZoom: true,
+      fadeAnimation: false,
+      maxBoundsViscosity: 1.0
     });
 
-    const fixedBounds = L.latLngBounds(FIXED_BOUNDS);
-    map.fitBounds(fixedBounds, { animate: false, padding: [0, 0] });
-    const lockedZoom = map.getZoom();
-    map.setMinZoom(lockedZoom);
-    map.setMaxZoom(lockedZoom);
-    map.setMaxBounds(fixedBounds.pad(0.05));
+    const initialBounds = L.latLngBounds(INITIAL_BOUNDS);
+    map.fitBounds(initialBounds, { animate: false, padding: [0, 0] });
+    map.setView(HEIDELBERG_CENTER, map.getZoom(), { animate: false });
+    const startZoom = map.getZoom();
+    const startViewBounds = map.getBounds();
+    radarBaseBounds = startViewBounds.pad(RADAR_PADDING_FACTOR);
+    map.setMinZoom(startZoom);
+    map.setMaxZoom(startZoom + MAX_ZOOM_STEPS);
+    map.setMaxBounds(startViewBounds);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-      minZoom: lockedZoom,
-      maxZoom: lockedZoom
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      subdomains: "abcd",
+      minZoom: startZoom,
+      maxZoom: startZoom + MAX_ZOOM_STEPS
+    }).addTo(map);
+
+    L.circleMarker(HEIDELBERG_CENTER, {
+      radius: 4,
+      color: "#ffffff",
+      weight: 1.5,
+      fillColor: "#e33a3a",
+      fillOpacity: 1,
+      interactive: false
     }).addTo(map);
   }
 
@@ -144,9 +165,24 @@
       return;
     }
 
-    radarImage.onload = null;
-    radarImage.onerror = null;
-    radarImage.src = frame.url;
+    const overlayBounds = radarBaseBounds || INITIAL_BOUNDS;
+    if (!radarOverlayLayer) {
+      radarOverlayLayer = L.imageOverlay(frame.url, overlayBounds, {
+        opacity: 0.88,
+        interactive: false
+      }).addTo(map);
+    } else {
+      const overlayEl = radarOverlayLayer.getElement();
+      if (overlayEl) {
+        overlayEl.src = frame.url;
+      } else {
+        radarOverlayLayer.setUrl(frame.url);
+      }
+      radarOverlayLayer.setBounds(overlayBounds);
+      if (!map.hasLayer(radarOverlayLayer)) {
+        radarOverlayLayer.addTo(map);
+      }
+    }
     updateTimelineMarkerByTime(frame.frameTime, anchorTime);
   }
 
@@ -226,7 +262,7 @@
 
   async function buildRadarFilmFramesParallel(runId, anchorTime, layer, onUpdate) {
     const timeline = createFilmTimeline(anchorTime);
-    const state = getMapState();
+    const state = getRadarRequestState();
     const frameByIndex = new Array(timeline.length);
     let nextIndex = 0;
     let loadedCount = 0;
@@ -293,19 +329,32 @@
     showFrame(currentFrames[index], index, currentAnchorTime);
   }
 
+  function queueSeekByRatio(ratio) {
+    pendingSeekRatio = ratio;
+    if (seekRafId) {
+      return;
+    }
+    seekRafId = window.requestAnimationFrame(function () {
+      seekRafId = 0;
+      if (pendingSeekRatio === null) {
+        return;
+      }
+      const ratioToApply = pendingSeekRatio;
+      pendingSeekRatio = null;
+      seekByRatio(ratioToApply);
+    });
+  }
+
   function loadRadarImage(url) {
     return new Promise((resolve, reject) => {
-      radarImage.onload = function () {
-        radarImage.onload = null;
-        radarImage.onerror = null;
+      const img = new Image();
+      img.onload = function () {
         resolve();
       };
-      radarImage.onerror = function () {
-        radarImage.onload = null;
-        radarImage.onerror = null;
+      img.onerror = function () {
         reject(new Error("Radarbild konnte nicht geladen werden."));
       };
-      radarImage.src = url;
+      img.src = url;
     });
   }
 
@@ -322,10 +371,8 @@
       return;
     }
 
-    radarImage.style.display = "";
-
     const slot = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
-    const state = getMapState();
+    const state = getRadarRequestState();
     const currentUrl = buildRadarUrl({
       layer,
       bbox: state.bbox,
@@ -349,6 +396,7 @@
       }
       return;
     }
+    showFrame({ url: currentUrl, frameTime: slot }, 0, slot);
 
     if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
       return;
@@ -382,21 +430,21 @@
 
       isScrubbing = true;
       timelineTrack.setPointerCapture(event.pointerId);
-      seekByRatio(getRatioFromClientX(event.clientX));
+      queueSeekByRatio(getRatioFromClientX(event.clientX));
     });
 
     timelineTrack.addEventListener("pointermove", function (event) {
       if (!isScrubbing) {
         return;
       }
-      seekByRatio(getRatioFromClientX(event.clientX));
+      queueSeekByRatio(getRatioFromClientX(event.clientX));
     });
 
     timelineTrack.addEventListener("pointerup", function (event) {
       if (!isScrubbing) {
         return;
       }
-      seekByRatio(getRatioFromClientX(event.clientX));
+      queueSeekByRatio(getRatioFromClientX(event.clientX));
       isScrubbing = false;
     });
 
@@ -434,10 +482,10 @@
     switchMode(MODE_RADOLAN);
   });
 
-  mapEl.addEventListener(
+  document.addEventListener(
     "touchstart",
     function (event) {
-      if (event.touches.length !== 1 || isScrubbing) {
+      if (event.touches.length !== 1 || isScrubbing || mapEl.contains(event.target)) {
         return;
       }
       touchStartY = event.touches[0].clientY;
@@ -446,10 +494,13 @@
     { passive: true }
   );
 
-  mapEl.addEventListener(
+  document.addEventListener(
     "touchmove",
     function (event) {
-      if (isScrubbing || pullTriggered || event.touches.length !== 1) {
+      if (event.touches.length !== 1 || isScrubbing || pullTriggered || mapEl.contains(event.target)) {
+        return;
+      }
+      if (window.scrollY > 0) {
         return;
       }
 
@@ -462,7 +513,7 @@
     { passive: true }
   );
 
-  mapEl.addEventListener(
+  document.addEventListener(
     "touchend",
     function () {
       pullTriggered = false;

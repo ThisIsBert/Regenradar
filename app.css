@@ -58,16 +58,6 @@ body {
   color: #a9d8ff;
 }
 
-.radar {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  z-index: 2;
-  pointer-events: none;
-}
-
 .overlay {
   position: absolute;
   left: 50%;
