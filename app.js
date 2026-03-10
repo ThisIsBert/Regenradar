@@ -125,10 +125,20 @@
     map.setMaxZoom(startZoom + MAX_ZOOM_STEPS);
     map.setMaxBounds(startViewBounds);
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+      subdomains: "abcd",
       minZoom: startZoom,
       maxZoom: startZoom + MAX_ZOOM_STEPS
+    }).addTo(map);
+
+    L.circleMarker(HEIDELBERG_CENTER, {
+      radius: 4,
+      color: "#ffffff",
+      weight: 1.5,
+      fillColor: "#e33a3a",
+      fillOpacity: 1,
+      interactive: false
     }).addTo(map);
   }
 
