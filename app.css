@@ -92,12 +92,6 @@ body {
   }
 }
 
-.controls {
-  margin-top: 0.65rem;
-  display: flex;
-  justify-content: center;
-}
-
 button {
   border: 0;
   border-radius: 0.6rem;
@@ -149,8 +143,11 @@ button[disabled] {
   border-radius: 999px;
   cursor: pointer;
   touch-action: none;
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(88, 178, 245, 0.6), rgba(255, 255, 255, 0.18));
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.14));
+}
+
+.timeline-track.ready {
+  background: linear-gradient(90deg, rgba(88, 178, 245, 0.28), rgba(88, 178, 245, 0.9), rgba(88, 178, 245, 0.28));
 }
 
 .timeline-track::before,
