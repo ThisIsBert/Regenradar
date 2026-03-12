@@ -5,7 +5,7 @@ Minimale statische PWA fuer ein datensparsames Regenradar mit festem Heidelberg-
 ## Enthalten
 
 - Fester Leaflet-Ausschnitt mit OSM-Basiskarte (ohne Pan/Zoom)
-- Radar/Radolan als DWD-WMS-Overlay
+- Radar als DWD-WMS-Overlay
 - Beim Laden zuerst aktuelles Lagebild, danach automatisches Laden der Filmframes (`-60/+60 min` in 5-Minuten-Schritten)
 - Kein Auto-Play: Navigation nur per Scrubbing ueber die Zeitleiste
 - Zeitleiste signalisiert Ladezustand (grau beim Laden, blau nach Abschluss)
