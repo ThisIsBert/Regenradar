@@ -99,37 +99,13 @@ button[disabled] {
   opacity: 0.55;
 }
 
-.mode-switch {
-  margin-top: 0.9rem;
-  display: inline-flex;
-  width: 100%;
-  justify-content: center;
-  gap: 0.35rem;
-}
-
-.mode-btn {
-  min-width: 5.6rem;
-  border-radius: 999px;
-  padding: 0.45rem 0.7rem;
-  font-size: 0.88rem;
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.mode-btn.active {
-  color: #00111f;
-  background: linear-gradient(180deg, #93d0fb, var(--accent));
-  border-color: transparent;
-}
-
 .timeline {
-  margin-top: 0.85rem;
+  margin-top: 1rem;
 }
 
 .timeline-track {
   position: relative;
-  height: 0.5rem;
+  height: 0.85rem;
   border-radius: 999px;
   cursor: pointer;
   touch-action: none;
@@ -144,9 +120,9 @@ button[disabled] {
 .timeline-track::after {
   content: "";
   position: absolute;
-  top: -0.25rem;
+  top: -0.2rem;
   width: 1px;
-  height: 1rem;
+  height: 1.25rem;
   background: rgba(255, 255, 255, 0.35);
 }
 
@@ -162,13 +138,13 @@ button[disabled] {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 0.85rem;
-  height: 0.85rem;
+  width: 1.15rem;
+  height: 1.15rem;
   transform: translate(-50%, -50%);
   border-radius: 999px;
   border: 2px solid #ffffff;
   background: #58b2f5;
-  box-shadow: 0 0 0 2px rgba(7, 21, 35, 0.55);
+  box-shadow: 0 0 0 3px rgba(7, 21, 35, 0.55);
 }
 
 .timeline-labels {

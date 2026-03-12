@@ -1,11 +1,7 @@
 (function () {
-  const MODE_RADAR = "radar";
-  const MODE_RADOLAN = "radolan";
-
   const WMS_BASE_URL = "https://maps.dwd.de/geoserver/wms";
   const NOW_LAYER = "dwd:Niederschlagsradar";
   const FILM_LAYER = "dwd:Radar_rv_product_1x1km_ger";
-  const RADOLAN_LAYER = "dwd:RADOLAN-RY";
   const HEIDELBERG_CENTER = [49.39875, 8.67243];
   const INITIAL_BOUNDS = [
     [49.16875, 8.22243],
@@ -27,8 +23,6 @@
   const timelineStart = document.getElementById("timelineStart");
   const timelineMid = document.getElementById("timelineMid");
   const timelineEnd = document.getElementById("timelineEnd");
-  const modeRadarBtn = document.getElementById("modeRadarBtn");
-  const modeRadolanBtn = document.getElementById("modeRadolanBtn");
 
   let map;
   let radarOverlayLayer;
@@ -37,7 +31,6 @@
   let touchStartY = 0;
   let pullTriggered = false;
   let isScrubbing = false;
-  let currentMode = MODE_RADAR;
   let pendingSeekRatio = null;
   let seekRafId = 0;
 
@@ -190,29 +183,6 @@
     timelineTrack.classList.toggle("ready", Boolean(isReady));
   }
 
-  function getCurrentRadarLikeLayer(mode) {
-    if (mode === MODE_RADOLAN) {
-      return RADOLAN_LAYER;
-    }
-    return mode === MODE_RADAR ? NOW_LAYER : "";
-  }
-
-  function getCurrentFilmLayer(mode) {
-    if (mode === MODE_RADOLAN) {
-      return RADOLAN_LAYER;
-    }
-    return mode === MODE_RADAR ? FILM_LAYER : "";
-  }
-
-  function setModeButtons() {
-    const radarActive = currentMode === MODE_RADAR;
-    const radolanActive = currentMode === MODE_RADOLAN;
-    modeRadarBtn.classList.toggle("active", radarActive);
-    modeRadolanBtn.classList.toggle("active", radolanActive);
-    modeRadarBtn.setAttribute("aria-pressed", String(radarActive));
-    modeRadolanBtn.setAttribute("aria-pressed", String(radolanActive));
-  }
-
   function createFilmTimeline(anchorTime) {
     const timeline = [];
     for (let minute = -FILM_WINDOW_MINUTES; minute <= FILM_WINDOW_MINUTES; minute += STEP_MINUTES) {
@@ -358,23 +328,18 @@
     });
   }
 
-  async function loadCurrentRadarLikeWithFilm() {
+  async function loadCurrentRadarWithFilm() {
     if (!map || isScrubbing) {
       return;
     }
 
     currentFilmRunId += 1;
     const runId = currentFilmRunId;
-    const modeAtStart = currentMode;
-    const layer = getCurrentRadarLikeLayer(modeAtStart);
-    if (!layer) {
-      return;
-    }
 
     const slot = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
     const state = getRadarRequestState();
     const currentUrl = buildRadarUrl({
-      layer,
+      layer: NOW_LAYER,
       bbox: state.bbox,
       width: state.width,
       height: state.height,
@@ -391,21 +356,20 @@
     try {
       await loadRadarImage(currentUrl);
     } catch (_error) {
-      if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
+      if (runId !== currentFilmRunId) {
         return;
       }
       return;
     }
     showFrame({ url: currentUrl, frameTime: slot }, 0, slot);
 
-    if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
+    if (runId !== currentFilmRunId) {
       return;
     }
 
-    const radarLikeFilmLayer = getCurrentFilmLayer(modeAtStart);
-    const frames = await buildRadarFilmFramesParallel(runId, slot, radarLikeFilmLayer);
+    const frames = await buildRadarFilmFramesParallel(runId, slot, FILM_LAYER);
 
-    if (runId !== currentFilmRunId || modeAtStart !== currentMode) {
+    if (runId !== currentFilmRunId) {
       return;
     }
 
@@ -415,7 +379,7 @@
   }
 
   function loadCurrentView() {
-    loadCurrentRadarLikeWithFilm();
+    loadCurrentRadarWithFilm();
   }
 
   function initTimelineScrub() {
@@ -461,27 +425,6 @@
     };
   }
 
-  function switchMode(mode) {
-    if (mode === currentMode) {
-      return;
-    }
-
-    currentMode = mode;
-    currentFilmRunId += 1;
-    currentFrames = [];
-    setTimelineReadyState(false);
-    setModeButtons();
-    loadCurrentView();
-  }
-
-  modeRadarBtn.addEventListener("click", function () {
-    switchMode(MODE_RADAR);
-  });
-
-  modeRadolanBtn.addEventListener("click", function () {
-    switchMode(MODE_RADOLAN);
-  });
-
   document.addEventListener(
     "touchstart",
     function (event) {
@@ -523,7 +466,6 @@
 
   initMap();
   initTimelineScrub();
-  setModeButtons();
   loadCurrentView();
 
   window.addEventListener(
