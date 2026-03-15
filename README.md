@@ -9,6 +9,7 @@ Minimale statische PWA fuer ein datensparsames Regenradar mit festem Heidelberg-
 - Beim Laden zuerst aktuelles Lagebild, danach automatisches Laden der Filmframes (`-60/+60 min` in 5-Minuten-Schritten)
 - Kein Auto-Play: Navigation nur per Scrubbing ueber die Zeitleiste
 - Zeitleiste signalisiert Ladezustand (grau beim Laden, blau nach Abschluss)
+- Kompakte Stundenprognose fuer Heidelberg mit Bright Sky (`Temperatur`, `Wolken`, `Regenwahrscheinlichkeit`, falls verfuegbar)
 - Pull-to-refresh fuer manuelles Nachladen
 - PWA-Basis mit `manifest.webmanifest` und `sw.js` (App-Shell-Caching)
 - OSM-Tiles und Leaflet-CDN-Dateien werden nach erstem Laden lokal per Service Worker cache-first bedient
