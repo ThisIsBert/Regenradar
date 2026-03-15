@@ -20,6 +20,16 @@
   const FORECAST_STEP_HOURS = 2;
   const FORECAST_TTL_MS = 15 * 60 * 1000;
   const FORECAST_PREVIEW_PARAM = new URLSearchParams(window.location.search).get("forecastPreview");
+  const WEATHER_ICON_PATHS = {
+    clearDay: "./icons/weather/klar_tag.svg",
+    clearNight: "./icons/weather/klar_nacht.svg",
+    partlyCloudyDay: "./icons/weather/teils_bewoelkt_tag.svg",
+    partlyCloudyNight: "./icons/weather/teils_bewoelkt_nacht.svg",
+    cloudy: "./icons/weather/bewoelkt.svg",
+    rain: "./icons/weather/regen.svg",
+    thunderstorm: "./icons/weather/gewitter.svg",
+    fog: "./icons/weather/nebel.svg"
+  };
 
   const mapEl = document.getElementById("map");
   const loadingState = document.getElementById("loadingState");
@@ -28,7 +38,6 @@
   const timelineStart = document.getElementById("timelineStart");
   const timelineMid = document.getElementById("timelineMid");
   const timelineEnd = document.getElementById("timelineEnd");
-  const forecastMeta = document.getElementById("forecastMeta");
   const forecastStatus = document.getElementById("forecastStatus");
   const forecastSlots = document.getElementById("forecastSlots");
 
@@ -103,7 +112,7 @@
     }
 
     if (entry.precipitation === 0) {
-      return "0 % Regenwahrscheinlichkeit";
+      return "0 % Regen";
     }
 
     return formatPrecipitation(entry.precipitation) || "Keine Details";
@@ -116,17 +125,17 @@
     if (value < 15) {
       return "Fast klar";
     }
-    if (value < 40) {
-      return "Leicht bewolkt";
-    }
+      if (value < 40) {
+      return "Leicht bewölkt";
+      }
     if (value < 70) {
       return "Wolkig";
     }
-    if (value < 90) {
-      return "Stark bewolkt";
+      if (value < 90) {
+      return "Stark bewölkt";
+      }
+      return "Bedeckt";
     }
-    return "Bedeckt";
-  }
 
   function isNightTime(date) {
     const hour = date.getHours();
@@ -164,35 +173,38 @@
   function getForecastIconPresentation(entry) {
     const icon = String(entry.icon || "");
     const condition = String(entry.condition || "");
+    const isNight = isNightTime(entry.timestamp);
 
     if (icon.includes("thunderstorm") || condition.includes("thunder")) {
-      return { symbol: "⛈", tone: "storm" };
+      return { src: WEATHER_ICON_PATHS.thunderstorm, alt: "Gewitter" };
     }
     if (icon.includes("snow") || condition.includes("snow") || icon.includes("sleet")) {
-      return { symbol: "🌨", tone: "storm" };
+      return { src: WEATHER_ICON_PATHS.thunderstorm, alt: "Schauer" };
     }
     if (icon.includes("rain") || condition.includes("rain")) {
-      return { symbol: "🌧", tone: "rain" };
+      return { src: WEATHER_ICON_PATHS.rain, alt: "Regen" };
     }
     if (icon.includes("fog") || condition.includes("fog")) {
-      return { symbol: "🌫", tone: "fog" };
+      return { src: WEATHER_ICON_PATHS.fog, alt: "Nebel" };
     }
-    if (icon.includes("partly-cloudy")) {
-      return { symbol: "⛅", tone: "cloud" };
+    if (icon.includes("partly-cloudy") || condition.includes("partly-cloudy")) {
+      return {
+        src: isNight ? WEATHER_ICON_PATHS.partlyCloudyNight : WEATHER_ICON_PATHS.partlyCloudyDay,
+        alt: "Teilweise bewölkt"
+      };
     }
     if (icon.includes("cloud") || icon.includes("overcast") || condition.includes("cloud")) {
-      return { symbol: "☁", tone: "cloud" };
+      return { src: WEATHER_ICON_PATHS.cloudy, alt: "Bewölkt" };
     }
-    return { symbol: "☀", tone: "sun" };
+    return {
+      src: isNight ? WEATHER_ICON_PATHS.clearNight : WEATHER_ICON_PATHS.clearDay,
+      alt: isNight ? "Klarer Nachthimmel" : "Sonnig"
+    };
   }
 
   function setForecastStatus(message, hidden) {
     forecastStatus.textContent = message;
     forecastStatus.classList.toggle("hidden", Boolean(hidden));
-  }
-
-  function setForecastMeta(message) {
-    forecastMeta.textContent = message;
   }
 
   function clearForecastSlots() {
@@ -334,7 +346,9 @@
 
       slotEl.innerHTML = `
         <p class="forecast-time">${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}</p>
-        <div class="forecast-icon ${icon.tone}" aria-hidden="true">${icon.symbol}</div>
+        <div class="forecast-icon">
+          <img class="forecast-icon-image" src="${icon.src}" alt="${icon.alt}">
+        </div>
         <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
         <p class="forecast-cloud-label">${cloudLabel}</p>
         <p class="forecast-detail">${detailLine}</p>
@@ -350,9 +364,6 @@
 
     if (previewEntries) {
       renderForecast(previewEntries);
-      setForecastMeta(`Preview · ${previewEntries.map(function (entry) {
-        return Math.round(entry.cloudCover);
-      }).join(" / ")} %`);
       setForecastStatus("", true);
       return;
     }
@@ -363,14 +374,12 @@
       now.getTime() - forecastCache.loadedAt < FORECAST_TTL_MS
     ) {
       renderForecast(forecastCache.entries);
-      setForecastMeta(`Stand ${formatForecastTime(forecastCache.updatedAt)}`);
       setForecastStatus("", true);
       return;
     }
 
     currentForecastRunId += 1;
     const runId = currentForecastRunId;
-    setForecastMeta("Bright Sky · Heidelberg");
     setForecastStatus("Lade Prognose ...", false);
 
     try {
@@ -386,7 +395,6 @@
 
       if (!selected.length) {
         clearForecastSlots();
-        setForecastMeta("Bright Sky · Heidelberg");
         setForecastStatus("Keine Prognose verfuegbar.", false);
         return;
       }
@@ -398,14 +406,12 @@
       };
 
       renderForecast(selected);
-      setForecastMeta(`Bright Sky · Stand ${formatForecastTime(selected[0].timestamp)}`);
       setForecastStatus("", true);
     } catch (_error) {
       if (runId !== currentForecastRunId) {
         return;
       }
       clearForecastSlots();
-      setForecastMeta("Bright Sky · Heidelberg");
       setForecastStatus("Prognose gerade nicht verfuegbar.", false);
     }
   }

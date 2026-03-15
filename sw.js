@@ -1,4 +1,4 @@
-const CACHE_NAME = "regenradar-shell-v16";
+const CACHE_NAME = "regenradar-shell-v17";
 const OSM_TILE_CACHE = "regenradar-osm-v1";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
@@ -9,7 +9,15 @@ const SHELL_FILES = [
   "./app.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
-  "./icons/icon-512.png"
+  "./icons/icon-512.png",
+  "./icons/weather/bewoelkt.svg",
+  "./icons/weather/gewitter.svg",
+  "./icons/weather/klar_nacht.svg",
+  "./icons/weather/klar_tag.svg",
+  "./icons/weather/nebel.svg",
+  "./icons/weather/regen.svg",
+  "./icons/weather/teils_bewoelkt_nacht.svg",
+  "./icons/weather/teils_bewoelkt_tag.svg"
 ];
 
 self.addEventListener("install", (event) => {
