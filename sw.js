@@ -1,4 +1,4 @@
-const CACHE_NAME = "regenradar-shell-v15";
+const CACHE_NAME = "regenradar-shell-v16";
 const OSM_TILE_CACHE = "regenradar-osm-v1";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
@@ -45,7 +45,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Dynamische Wetterdaten niemals dauerhaft im SW cachen, damit sie frisch bleiben.
-  if (request.url.includes("maps.dwd.de/geoserver/wms")) {
+  if (request.url.includes("maps.dwd.de/geoserver/wms") || request.url.includes("api.brightsky.dev/weather")) {
     return;
   }
   if (url.hostname === "tile.openstreetmap.org") {

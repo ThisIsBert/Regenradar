@@ -1,5 +1,6 @@
 (function () {
   const WMS_BASE_URL = "https://maps.dwd.de/geoserver/wms";
+  const BRIGHT_SKY_WEATHER_URL = "https://api.brightsky.dev/weather";
   const NOW_LAYER = "dwd:Niederschlagsradar";
   const FILM_LAYER = "dwd:Radar_rv_product_1x1km_ger";
   const HEIDELBERG_CENTER = [49.39875, 8.67243];
@@ -15,6 +16,10 @@
   const FILM_PARALLEL_REQUESTS = 5;
   const PULL_REFRESH_THRESHOLD = 90;
   const RADAR_PADDING_FACTOR = 0.08;
+  const FORECAST_SLOT_COUNT = 7;
+  const FORECAST_STEP_HOURS = 2;
+  const FORECAST_TTL_MS = 15 * 60 * 1000;
+  const FORECAST_PREVIEW_PARAM = new URLSearchParams(window.location.search).get("forecastPreview");
 
   const mapEl = document.getElementById("map");
   const loadingState = document.getElementById("loadingState");
@@ -23,6 +28,9 @@
   const timelineStart = document.getElementById("timelineStart");
   const timelineMid = document.getElementById("timelineMid");
   const timelineEnd = document.getElementById("timelineEnd");
+  const forecastMeta = document.getElementById("forecastMeta");
+  const forecastStatus = document.getElementById("forecastStatus");
+  const forecastSlots = document.getElementById("forecastSlots");
 
   let map;
   let radarOverlayLayer;
@@ -36,6 +44,8 @@
 
   let currentAnchorTime = null;
   let currentFrames = [];
+  let currentForecastRunId = 0;
+  let forecastCache = null;
 
   const frameCache = new Map();
 
@@ -52,6 +62,352 @@
 
   function formatIsoTime(date) {
     return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+
+  function formatDateParam(date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  function formatForecastTime(date) {
+    return date.toLocaleTimeString("de-DE", {
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
+  function roundTemperature(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return "--";
+    }
+    return Math.round(value);
+  }
+
+  function formatProbability(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return null;
+    }
+    return `${Math.round(value)} % Regen`;
+  }
+
+  function formatPrecipitation(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return null;
+    }
+    return `${value.toFixed(1)} mm/h`;
+  }
+
+  function getForecastDetailLine(entry) {
+    const probabilityLine = formatProbability(entry.precipitationProbability);
+    if (probabilityLine) {
+      return probabilityLine;
+    }
+
+    if (entry.precipitation === 0) {
+      return "0 % Regenwahrscheinlichkeit";
+    }
+
+    return formatPrecipitation(entry.precipitation) || "Keine Details";
+  }
+
+  function describeCloudCover(value) {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return "Wolken unklar";
+    }
+    if (value < 15) {
+      return "Fast klar";
+    }
+    if (value < 40) {
+      return "Leicht bewolkt";
+    }
+    if (value < 70) {
+      return "Wolkig";
+    }
+    if (value < 90) {
+      return "Stark bewolkt";
+    }
+    return "Bedeckt";
+  }
+
+  function isNightTime(date) {
+    const hour = date.getHours();
+    return hour >= 20 || hour < 6;
+  }
+
+  function getForecastCardTone(date) {
+    return isNightTime(date) ? "night" : "day";
+  }
+
+  function getForecastCardPalette(tone, cloudCover) {
+    const cover = typeof cloudCover === "number" && !Number.isNaN(cloudCover) ? Math.max(0, Math.min(100, cloudCover)) : 50;
+    const ratio = cover / 100;
+
+    if (tone === "night") {
+      const startLightness = 6 + ratio * 16;
+      const endLightness = 11 + ratio * 18;
+      const saturation = 18 - ratio * 16;
+      return {
+        top: `hsl(220 ${Math.max(2, saturation)}% ${startLightness}%)`,
+        bottom: `hsl(220 ${Math.max(1, saturation - 3)}% ${endLightness}%)`
+      };
+    }
+
+    const startSaturation = 92 - ratio * 78;
+    const endSaturation = 82 - ratio * 70;
+    const startLightness = 74 - ratio * 14;
+    const endLightness = 58 - ratio * 12;
+    return {
+      top: `hsl(200 ${startSaturation}% ${startLightness}%)`,
+      bottom: `hsl(205 ${endSaturation}% ${endLightness}%)`
+    };
+  }
+
+  function getForecastIconPresentation(entry) {
+    const icon = String(entry.icon || "");
+    const condition = String(entry.condition || "");
+
+    if (icon.includes("thunderstorm") || condition.includes("thunder")) {
+      return { symbol: "⛈", tone: "storm" };
+    }
+    if (icon.includes("snow") || condition.includes("snow") || icon.includes("sleet")) {
+      return { symbol: "🌨", tone: "storm" };
+    }
+    if (icon.includes("rain") || condition.includes("rain")) {
+      return { symbol: "🌧", tone: "rain" };
+    }
+    if (icon.includes("fog") || condition.includes("fog")) {
+      return { symbol: "🌫", tone: "fog" };
+    }
+    if (icon.includes("partly-cloudy")) {
+      return { symbol: "⛅", tone: "cloud" };
+    }
+    if (icon.includes("cloud") || icon.includes("overcast") || condition.includes("cloud")) {
+      return { symbol: "☁", tone: "cloud" };
+    }
+    return { symbol: "☀", tone: "sun" };
+  }
+
+  function setForecastStatus(message, hidden) {
+    forecastStatus.textContent = message;
+    forecastStatus.classList.toggle("hidden", Boolean(hidden));
+  }
+
+  function setForecastMeta(message) {
+    forecastMeta.textContent = message;
+  }
+
+  function clearForecastSlots() {
+    forecastSlots.innerHTML = "";
+  }
+
+  function buildForecastUrl(date) {
+    const params = new URLSearchParams({
+      lat: String(HEIDELBERG_CENTER[0]),
+      lon: String(HEIDELBERG_CENTER[1]),
+      date: formatDateParam(date),
+      tz: "Europe/Berlin"
+    });
+    return `${BRIGHT_SKY_WEATHER_URL}?${params.toString()}`;
+  }
+
+  async function fetchForecastDay(date) {
+    const response = await fetch(buildForecastUrl(date));
+    if (!response.ok) {
+      throw new Error("Vorhersage konnte nicht geladen werden.");
+    }
+    const payload = await response.json();
+    return Array.isArray(payload.weather) ? payload.weather : [];
+  }
+
+  function normalizeForecastEntries(entries) {
+    return entries
+      .map(function (entry) {
+        return {
+          timestamp: new Date(entry.timestamp),
+          temperature: typeof entry.temperature === "number" ? entry.temperature : null,
+          cloudCover: typeof entry.cloud_cover === "number" ? entry.cloud_cover : null,
+          precipitation: typeof entry.precipitation === "number" ? entry.precipitation : null,
+          precipitationProbability:
+            typeof entry.precipitation_probability === "number" ? entry.precipitation_probability : null,
+          icon: entry.icon || "",
+          condition: entry.condition || ""
+        };
+      })
+      .filter(function (entry) {
+        return !Number.isNaN(entry.timestamp.getTime());
+      })
+      .sort(function (a, b) {
+        return a.timestamp.getTime() - b.timestamp.getTime();
+      });
+  }
+
+  function parsePreviewCloudCoverValues() {
+    if (!FORECAST_PREVIEW_PARAM) {
+      return null;
+    }
+
+    if (FORECAST_PREVIEW_PARAM === "demo") {
+      return [0, 18, 36, 54, 72, 88, 100];
+    }
+
+    const values = FORECAST_PREVIEW_PARAM
+      .split(",")
+      .map(function (value) {
+        return Number.parseInt(value.trim(), 10);
+      })
+      .filter(function (value) {
+        return Number.isFinite(value);
+      })
+      .map(function (value) {
+        return Math.max(0, Math.min(100, value));
+      });
+
+    return values.length ? values : null;
+  }
+
+  function buildPreviewForecastEntries(now) {
+    const cloudCovers = parsePreviewCloudCoverValues();
+    if (!cloudCovers) {
+      return null;
+    }
+
+    const startTime = new Date(now);
+    startTime.setMinutes(0, 0, 0);
+
+    return cloudCovers.slice(0, FORECAST_SLOT_COUNT).map(function (cloudCover, index) {
+      const timestamp = new Date(startTime.getTime() + index * FORECAST_STEP_HOURS * 60 * 60 * 1000);
+      return {
+        timestamp,
+        temperature: 12 + index,
+        cloudCover,
+        precipitation: cloudCover > 70 ? 0.6 : 0,
+        precipitationProbability: cloudCover > 50 ? Math.round(cloudCover * 0.7) : 0,
+        icon: cloudCover > 75 ? "cloudy" : cloudCover > 45 ? "partly-cloudy-day" : "clear-day",
+        condition: cloudCover > 75 ? "cloudy" : cloudCover > 45 ? "partly-cloudy" : "clear"
+      };
+    });
+  }
+
+  function selectForecastEntries(entries, now) {
+    const startTime = new Date(now);
+    startTime.setMinutes(0, 0, 0);
+
+    const futureEntries = entries.filter(function (entry) {
+      return entry.timestamp.getTime() >= startTime.getTime();
+    });
+
+    if (!futureEntries.length) {
+      return [];
+    }
+
+    const selected = [futureEntries[0]];
+    let lastIncluded = futureEntries[0].timestamp.getTime();
+
+    for (let i = 1; i < futureEntries.length && selected.length < FORECAST_SLOT_COUNT; i += 1) {
+      const candidate = futureEntries[i];
+      const diffHours = (candidate.timestamp.getTime() - lastIncluded) / (60 * 60 * 1000);
+      if (diffHours >= FORECAST_STEP_HOURS - 0.01) {
+        selected.push(candidate);
+        lastIncluded = candidate.timestamp.getTime();
+      }
+    }
+
+    return selected;
+  }
+
+  function renderForecast(entries) {
+    clearForecastSlots();
+
+    entries.forEach(function (entry, index) {
+      const slotEl = document.createElement("article");
+      const icon = getForecastIconPresentation(entry);
+      const detailLine = getForecastDetailLine(entry);
+      const cloudCover = typeof entry.cloudCover === "number" ? Math.max(0, Math.min(100, entry.cloudCover)) : null;
+      const cloudLabel = describeCloudCover(cloudCover);
+      const cardTone = getForecastCardTone(entry.timestamp);
+      const palette = getForecastCardPalette(cardTone, cloudCover);
+      const skyAriaLabel =
+        cloudCover === null ? "Wolkenlage unbekannt" : `${cloudLabel}, ${Math.round(cloudCover)} Prozent Wolken`;
+      slotEl.className = `forecast-slot forecast-slot-${cardTone}${index === 0 ? " current" : ""}`;
+      slotEl.setAttribute("aria-label", `${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}: ${skyAriaLabel}`);
+      slotEl.style.setProperty("--forecast-bg-top", palette.top);
+      slotEl.style.setProperty("--forecast-bg-bottom", palette.bottom);
+
+      slotEl.innerHTML = `
+        <p class="forecast-time">${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}</p>
+        <div class="forecast-icon ${icon.tone}" aria-hidden="true">${icon.symbol}</div>
+        <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
+        <p class="forecast-cloud-label">${cloudLabel}</p>
+        <p class="forecast-detail">${detailLine}</p>
+      `;
+
+      forecastSlots.appendChild(slotEl);
+    });
+  }
+
+  async function loadForecast(forceReload) {
+    const now = new Date();
+    const previewEntries = buildPreviewForecastEntries(now);
+
+    if (previewEntries) {
+      renderForecast(previewEntries);
+      setForecastMeta(`Preview · ${previewEntries.map(function (entry) {
+        return Math.round(entry.cloudCover);
+      }).join(" / ")} %`);
+      setForecastStatus("", true);
+      return;
+    }
+
+    if (
+      !forceReload &&
+      forecastCache &&
+      now.getTime() - forecastCache.loadedAt < FORECAST_TTL_MS
+    ) {
+      renderForecast(forecastCache.entries);
+      setForecastMeta(`Stand ${formatForecastTime(forecastCache.updatedAt)}`);
+      setForecastStatus("", true);
+      return;
+    }
+
+    currentForecastRunId += 1;
+    const runId = currentForecastRunId;
+    setForecastMeta("Bright Sky · Heidelberg");
+    setForecastStatus("Lade Prognose ...", false);
+
+    try {
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const results = await Promise.all([fetchForecastDay(now), fetchForecastDay(tomorrow)]);
+
+      if (runId !== currentForecastRunId) {
+        return;
+      }
+
+      const merged = normalizeForecastEntries(results[0].concat(results[1]));
+      const selected = selectForecastEntries(merged, now);
+
+      if (!selected.length) {
+        clearForecastSlots();
+        setForecastMeta("Bright Sky · Heidelberg");
+        setForecastStatus("Keine Prognose verfuegbar.", false);
+        return;
+      }
+
+      forecastCache = {
+        entries: selected,
+        loadedAt: now.getTime(),
+        updatedAt: selected[0].timestamp
+      };
+
+      renderForecast(selected);
+      setForecastMeta(`Bright Sky · Stand ${formatForecastTime(selected[0].timestamp)}`);
+      setForecastStatus("", true);
+    } catch (_error) {
+      if (runId !== currentForecastRunId) {
+        return;
+      }
+      clearForecastSlots();
+      setForecastMeta("Bright Sky · Heidelberg");
+      setForecastStatus("Prognose gerade nicht verfuegbar.", false);
+    }
   }
 
   function getRadarRequestState() {
@@ -378,8 +734,9 @@
     setTimelineReadyState(true);
   }
 
-  function loadCurrentView() {
+  function loadCurrentView(forceForecastReload) {
     loadCurrentRadarWithFilm();
+    loadForecast(Boolean(forceForecastReload));
   }
 
   function initTimelineScrub() {
@@ -450,7 +807,7 @@
       const deltaY = event.touches[0].clientY - touchStartY;
       if (deltaY > PULL_REFRESH_THRESHOLD) {
         pullTriggered = true;
-        loadCurrentView();
+        loadCurrentView(true);
       }
     },
     { passive: true }
