@@ -168,34 +168,16 @@ button[disabled] {
 }
 
 .forecast-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: block;
 }
 
 .forecast-kicker {
-  margin: 0 0 0.2rem;
-  font-size: 0.72rem;
+  margin: 0;
+  font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #a9d8ff;
-}
-
-.forecast-title {
-  margin: 0;
-  font-size: 1.05rem;
-  line-height: 1.2;
-}
-
-.forecast-meta {
-  margin: 0;
-  max-width: 8rem;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  text-align: right;
-  color: var(--muted);
 }
 
 .forecast-status {
@@ -248,35 +230,15 @@ button[disabled] {
 }
 
 .forecast-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  margin: 0.5rem auto 0.45rem;
-  border-radius: 999px;
-  font-size: 1.3rem;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: 0.45rem auto 0.4rem;
 }
 
-.forecast-icon.sun {
-  background: linear-gradient(180deg, #ffd55d, #ff9d3b);
-}
-
-.forecast-icon.cloud {
-  background: linear-gradient(180deg, #d7e4f0, #94b5cf);
-}
-
-.forecast-icon.rain {
-  background: linear-gradient(180deg, #7dc8ff, #3278d8);
-}
-
-.forecast-icon.storm {
-  background: linear-gradient(180deg, #a1a4d5, #565a9a);
-}
-
-.forecast-icon.fog {
-  background: linear-gradient(180deg, #d8dbe2, #a2adbc);
+.forecast-icon-image {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .forecast-temp {

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- simple cloud -->
+  <path d="M68 156
+           c0-19 15-34 34-34
+           c4 0 7 1 11 2
+           c6-13 19-22 34-22
+           c19 0 35 12 40 29
+           c2 0 4 0 6 0
+           c16 0 29 13 29 29
+           c0 16-13 29-29 29
+           H97
+           c-16 0-29-13-29-29
+           c0-1 0-3 0-4z"
+        fill="#ffffff" stroke="#d6dae0" stroke-width="6" stroke-linejoin="round"/>
+
+  <!-- fog bands -->
+  <g stroke="#dfe4ea" stroke-width="12" stroke-linecap="round" fill="none">
+    <line x1="42" y1="136" x2="214" y2="136"/>
+    <line x1="56" y1="162" x2="200" y2="162"/>
+    <line x1="74" y1="188" x2="182" y2="188"/>
+  </g>
+</svg>
