@@ -16,10 +16,12 @@
   const FILM_PARALLEL_REQUESTS = 5;
   const PULL_REFRESH_THRESHOLD = 90;
   const RADAR_PADDING_FACTOR = 0.08;
-  const FORECAST_SLOT_COUNT = 7;
-  const FORECAST_STEP_HOURS = 2;
+  const FORECAST_SLOT_COUNT = 14;
+  const FORECAST_STEP_HOURS = 1;
   const FORECAST_TTL_MS = 15 * 60 * 1000;
-  const FORECAST_PREVIEW_PARAM = new URLSearchParams(window.location.search).get("forecastPreview");
+  const FORECAST_QUERY_PARAMS = new URLSearchParams(window.location.search);
+  const FORECAST_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("forecastPreview");
+  const PRECIPITATION_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("precipitationPreview");
   const WEATHER_ICON_PATHS = {
     clearDay: "./icons/weather/klar_tag.svg",
     clearNight: "./icons/weather/klar_nacht.svg",
@@ -95,7 +97,7 @@
     if (typeof value !== "number" || Number.isNaN(value)) {
       return null;
     }
-    return `${Math.round(value)} % Regen`;
+    return `${Math.round(value)} %`;
   }
 
   function formatPrecipitation(value) {
@@ -103,19 +105,6 @@
       return null;
     }
     return `${value.toFixed(1)} mm/h`;
-  }
-
-  function getForecastDetailLine(entry) {
-    const probabilityLine = formatProbability(entry.precipitationProbability);
-    if (probabilityLine) {
-      return probabilityLine;
-    }
-
-    if (entry.precipitation === 0) {
-      return "0 % Regen";
-    }
-
-    return formatPrecipitation(entry.precipitation) || "Keine Details";
   }
 
   function describeCloudCover(value) {
@@ -168,6 +157,106 @@
       top: `hsl(200 ${startSaturation}% ${startLightness}%)`,
       bottom: `hsl(205 ${endSaturation}% ${endLightness}%)`
     };
+  }
+
+  function getForecastSkyVisual(tone, cloudCover) {
+    const cover = typeof cloudCover === "number" && !Number.isNaN(cloudCover) ? Math.max(0, Math.min(100, cloudCover)) : 50;
+    const ratio = cover / 100;
+
+    if (tone === "night") {
+      return {
+        cloudOpacity: (0.18 + ratio * 0.68).toFixed(2),
+        cloudDensity: (0.3 + ratio * 0.56).toFixed(2),
+        hazeOpacity: (0.1 + ratio * 0.28).toFixed(2),
+        glowOpacity: (0.2 - ratio * 0.15).toFixed(2)
+      };
+    }
+
+    return {
+      cloudOpacity: (0.14 + ratio * 0.62).toFixed(2),
+      cloudDensity: (0.24 + ratio * 0.56).toFixed(2),
+      hazeOpacity: (0.07 + ratio * 0.26).toFixed(2),
+      glowOpacity: (0.3 - ratio * 0.22).toFixed(2)
+    };
+  }
+
+  function getForecastSkyPattern(cloudCover) {
+    const cover = typeof cloudCover === "number" && !Number.isNaN(cloudCover) ? Math.max(0, Math.min(100, cloudCover)) : 50;
+    return cover >= 65 ? "closed" : "open";
+  }
+
+  function getPrecipitationDropCount(precipitation) {
+    if (typeof precipitation !== "number" || Number.isNaN(precipitation) || precipitation < 0.05) {
+      return 0;
+    }
+    if (precipitation < 0.4) {
+      return 1;
+    }
+    if (precipitation < 1.5) {
+      return 2;
+    }
+    return 3;
+  }
+
+  function getPrecipitationConfidence(probability) {
+    if (typeof probability !== "number" || Number.isNaN(probability)) {
+      return "medium";
+    }
+    if (probability < 15) {
+      return "none";
+    }
+    if (probability < 40) {
+      return "weak";
+    }
+    if (probability < 70) {
+      return "medium";
+    }
+    return "strong";
+  }
+
+  function getForecastPrecipitationPresentation(entry) {
+    const precipitation =
+      typeof entry.precipitation === "number" && !Number.isNaN(entry.precipitation) ? Math.max(0, entry.precipitation) : null;
+    const probability =
+      typeof entry.precipitationProbability === "number" && !Number.isNaN(entry.precipitationProbability)
+        ? Math.max(0, Math.min(100, entry.precipitationProbability))
+        : null;
+    let dropCount = getPrecipitationDropCount(precipitation);
+    const confidence = getPrecipitationConfidence(probability);
+
+    if (dropCount === 0 && probability !== null) {
+      if (probability >= 75) {
+        dropCount = 2;
+      } else if (probability >= 35) {
+        dropCount = 1;
+      }
+    }
+
+    const probabilityLabel = formatProbability(probability);
+    const precipitationLabel = formatPrecipitation(precipitation);
+    const ariaParts = [];
+
+    if (dropCount === 0 || confidence === "none") {
+      ariaParts.push("kein relevanter Niederschlag");
+    } else {
+      ariaParts.push("Niederschlag");
+    }
+    if (probabilityLabel) {
+      ariaParts.push(`Wahrscheinlichkeit ${probabilityLabel}`);
+    }
+    if (precipitationLabel) {
+      ariaParts.push(`Menge ${precipitationLabel}`);
+    }
+
+    return {
+      dropCount,
+      confidence,
+      ariaLabel: ariaParts.join(", ")
+    };
+  }
+
+  function renderPrecipitationDrops(dropCount) {
+    return "💧".repeat(Math.max(0, dropCount));
   }
 
   function getForecastIconPresentation(entry) {
@@ -276,23 +365,81 @@
     return values.length ? values : null;
   }
 
+  function parsePreviewPrecipitationValues() {
+    if (!PRECIPITATION_PREVIEW_PARAM) {
+      return null;
+    }
+
+    if (PRECIPITATION_PREVIEW_PARAM === "demo") {
+      return [
+        { precipitation: 0, precipitationProbability: 0 },
+        { precipitation: 0.2, precipitationProbability: 30 },
+        { precipitation: 0.2, precipitationProbability: 85 },
+        { precipitation: 0.8, precipitationProbability: 55 },
+        { precipitation: 1.8, precipitationProbability: 85 },
+        { precipitation: 3.4, precipitationProbability: 95 },
+        { precipitation: 2.4, precipitationProbability: 20 }
+      ];
+    }
+
+    const values = PRECIPITATION_PREVIEW_PARAM
+      .split(",")
+      .map(function (item) {
+        const parts = item.split(":");
+        if (!parts.length) {
+          return null;
+        }
+
+        const precipitation = Number.parseFloat(parts[0].trim());
+        const probability = parts.length > 1 ? Number.parseFloat(parts[1].trim()) : null;
+
+        if (!Number.isFinite(precipitation) && !Number.isFinite(probability)) {
+          return null;
+        }
+
+        return {
+          precipitation: Number.isFinite(precipitation) ? Math.max(0, precipitation) : null,
+          precipitationProbability: Number.isFinite(probability) ? Math.max(0, Math.min(100, probability)) : null
+        };
+      })
+      .filter(function (value) {
+        return value !== null;
+      });
+
+    return values.length ? values : null;
+  }
+
   function buildPreviewForecastEntries(now) {
     const cloudCovers = parsePreviewCloudCoverValues();
-    if (!cloudCovers) {
+    const precipitationValues = parsePreviewPrecipitationValues();
+    if (!cloudCovers && !precipitationValues) {
       return null;
     }
 
     const startTime = new Date(now);
     startTime.setMinutes(0, 0, 0);
 
-    return cloudCovers.slice(0, FORECAST_SLOT_COUNT).map(function (cloudCover, index) {
+    return Array.from({ length: FORECAST_SLOT_COUNT }, function (_unused, index) {
       const timestamp = new Date(startTime.getTime() + index * FORECAST_STEP_HOURS * 60 * 60 * 1000);
+      const cloudCover = cloudCovers ? cloudCovers[Math.min(index, cloudCovers.length - 1)] : 50;
+      const precipitationPreview = precipitationValues ? precipitationValues[Math.min(index, precipitationValues.length - 1)] : null;
+
       return {
         timestamp,
         temperature: 12 + index,
         cloudCover,
-        precipitation: cloudCover > 70 ? 0.6 : 0,
-        precipitationProbability: cloudCover > 50 ? Math.round(cloudCover * 0.7) : 0,
+        precipitation:
+          precipitationPreview && precipitationPreview.precipitation !== null
+            ? precipitationPreview.precipitation
+            : cloudCover > 70
+              ? 0.6
+              : 0,
+        precipitationProbability:
+          precipitationPreview && precipitationPreview.precipitationProbability !== null
+            ? precipitationPreview.precipitationProbability
+            : cloudCover > 50
+              ? Math.round(cloudCover * 0.7)
+              : 0,
         icon: cloudCover > 75 ? "cloudy" : cloudCover > 45 ? "partly-cloudy-day" : "clear-day",
         condition: cloudCover > 75 ? "cloudy" : cloudCover > 45 ? "partly-cloudy" : "clear"
       };
@@ -331,27 +478,34 @@
 
     entries.forEach(function (entry, index) {
       const slotEl = document.createElement("article");
-      const icon = getForecastIconPresentation(entry);
-      const detailLine = getForecastDetailLine(entry);
+      const precipitation = getForecastPrecipitationPresentation(entry);
       const cloudCover = typeof entry.cloudCover === "number" ? Math.max(0, Math.min(100, entry.cloudCover)) : null;
       const cloudLabel = describeCloudCover(cloudCover);
       const cardTone = getForecastCardTone(entry.timestamp);
       const palette = getForecastCardPalette(cardTone, cloudCover);
+      const skyVisual = getForecastSkyVisual(cardTone, cloudCover);
+      const skyPattern = getForecastSkyPattern(cloudCover);
       const skyAriaLabel =
         cloudCover === null ? "Wolkenlage unbekannt" : `${cloudLabel}, ${Math.round(cloudCover)} Prozent Wolken`;
       slotEl.className = `forecast-slot forecast-slot-${cardTone}${index === 0 ? " current" : ""}`;
-      slotEl.setAttribute("aria-label", `${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}: ${skyAriaLabel}`);
+      slotEl.setAttribute(
+        "aria-label",
+        `${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}: ${skyAriaLabel}, ${precipitation.ariaLabel}`
+      );
       slotEl.style.setProperty("--forecast-bg-top", palette.top);
       slotEl.style.setProperty("--forecast-bg-bottom", palette.bottom);
+      slotEl.style.setProperty("--forecast-cloud-opacity", skyVisual.cloudOpacity);
+      slotEl.style.setProperty("--forecast-cloud-density", skyVisual.cloudDensity);
+      slotEl.style.setProperty("--forecast-haze-opacity", skyVisual.hazeOpacity);
+      slotEl.style.setProperty("--forecast-glow-opacity", skyVisual.glowOpacity);
 
       slotEl.innerHTML = `
+        <div class="forecast-sky forecast-sky-${skyPattern}" aria-hidden="true"></div>
         <p class="forecast-time">${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}</p>
-        <div class="forecast-icon">
-          <img class="forecast-icon-image" src="${icon.src}" alt="${icon.alt}">
-        </div>
         <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
-        <p class="forecast-cloud-label">${cloudLabel}</p>
-        <p class="forecast-detail">${detailLine}</p>
+        <div class="forecast-precipitation forecast-precipitation-${precipitation.confidence}" aria-hidden="true">
+          ${renderPrecipitationDrops(precipitation.dropCount)}
+        </div>
       `;
 
       forecastSlots.appendChild(slotEl);
