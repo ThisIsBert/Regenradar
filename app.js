@@ -16,8 +16,8 @@
   const FILM_PARALLEL_REQUESTS = 5;
   const PULL_REFRESH_THRESHOLD = 90;
   const RADAR_PADDING_FACTOR = 0.08;
-  const FORECAST_SLOT_COUNT = 7;
-  const FORECAST_STEP_HOURS = 2;
+  const FORECAST_SLOT_COUNT = 14;
+  const FORECAST_STEP_HOURS = 1;
   const FORECAST_TTL_MS = 15 * 60 * 1000;
   const FORECAST_QUERY_PARAMS = new URLSearchParams(window.location.search);
   const FORECAST_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("forecastPreview");
