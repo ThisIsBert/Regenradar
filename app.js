@@ -159,6 +159,32 @@
     };
   }
 
+  function getForecastSkyVisual(tone, cloudCover) {
+    const cover = typeof cloudCover === "number" && !Number.isNaN(cloudCover) ? Math.max(0, Math.min(100, cloudCover)) : 50;
+    const ratio = cover / 100;
+
+    if (tone === "night") {
+      return {
+        cloudOpacity: (0.18 + ratio * 0.68).toFixed(2),
+        cloudDensity: (0.3 + ratio * 0.56).toFixed(2),
+        hazeOpacity: (0.1 + ratio * 0.28).toFixed(2),
+        glowOpacity: (0.2 - ratio * 0.15).toFixed(2)
+      };
+    }
+
+    return {
+      cloudOpacity: (0.14 + ratio * 0.62).toFixed(2),
+      cloudDensity: (0.24 + ratio * 0.56).toFixed(2),
+      hazeOpacity: (0.07 + ratio * 0.26).toFixed(2),
+      glowOpacity: (0.3 - ratio * 0.22).toFixed(2)
+    };
+  }
+
+  function getForecastSkyPattern(cloudCover) {
+    const cover = typeof cloudCover === "number" && !Number.isNaN(cloudCover) ? Math.max(0, Math.min(100, cloudCover)) : 50;
+    return cover >= 65 ? "closed" : "open";
+  }
+
   function getPrecipitationDropCount(precipitation) {
     if (typeof precipitation !== "number" || Number.isNaN(precipitation) || precipitation < 0.05) {
       return 0;
@@ -452,12 +478,13 @@
 
     entries.forEach(function (entry, index) {
       const slotEl = document.createElement("article");
-      const icon = getForecastIconPresentation(entry);
       const precipitation = getForecastPrecipitationPresentation(entry);
       const cloudCover = typeof entry.cloudCover === "number" ? Math.max(0, Math.min(100, entry.cloudCover)) : null;
       const cloudLabel = describeCloudCover(cloudCover);
       const cardTone = getForecastCardTone(entry.timestamp);
       const palette = getForecastCardPalette(cardTone, cloudCover);
+      const skyVisual = getForecastSkyVisual(cardTone, cloudCover);
+      const skyPattern = getForecastSkyPattern(cloudCover);
       const skyAriaLabel =
         cloudCover === null ? "Wolkenlage unbekannt" : `${cloudLabel}, ${Math.round(cloudCover)} Prozent Wolken`;
       slotEl.className = `forecast-slot forecast-slot-${cardTone}${index === 0 ? " current" : ""}`;
@@ -467,12 +494,14 @@
       );
       slotEl.style.setProperty("--forecast-bg-top", palette.top);
       slotEl.style.setProperty("--forecast-bg-bottom", palette.bottom);
+      slotEl.style.setProperty("--forecast-cloud-opacity", skyVisual.cloudOpacity);
+      slotEl.style.setProperty("--forecast-cloud-density", skyVisual.cloudDensity);
+      slotEl.style.setProperty("--forecast-haze-opacity", skyVisual.hazeOpacity);
+      slotEl.style.setProperty("--forecast-glow-opacity", skyVisual.glowOpacity);
 
       slotEl.innerHTML = `
+        <div class="forecast-sky forecast-sky-${skyPattern}" aria-hidden="true"></div>
         <p class="forecast-time">${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}</p>
-        <div class="forecast-icon">
-          <img class="forecast-icon-image" src="${icon.src}" alt="${icon.alt}">
-        </div>
         <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
         <div class="forecast-precipitation forecast-precipitation-${precipitation.confidence}" aria-hidden="true">
           ${renderPrecipitationDrops(precipitation.dropCount)}
