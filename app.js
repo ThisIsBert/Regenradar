@@ -19,6 +19,7 @@
   const FORECAST_SLOT_COUNT = 14;
   const FORECAST_STEP_HOURS = 1;
   const FORECAST_TTL_MS = 15 * 60 * 1000;
+  const RESUME_REFRESH_DEBOUNCE_MS = 1500;
   const FORECAST_QUERY_PARAMS = new URLSearchParams(window.location.search);
   const FORECAST_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("forecastPreview");
   const PRECIPITATION_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("precipitationPreview");
@@ -57,6 +58,7 @@
   let currentFrames = [];
   let currentForecastRunId = 0;
   let forecastCache = null;
+  let lastResumeRefreshAt = 0;
 
   const frameCache = new Map();
 
@@ -899,6 +901,34 @@
     loadForecast(Boolean(forceForecastReload));
   }
 
+  function shouldRefreshForResume(now) {
+    const latestRadarSlot = new Date(getFiveMinuteSlot(now).getTime() - STEP_MS);
+    const radarIsStale = !currentAnchorTime || latestRadarSlot.getTime() > currentAnchorTime.getTime();
+    const forecastIsStale =
+      !forecastCache || now.getTime() - forecastCache.loadedAt >= FORECAST_TTL_MS;
+
+    return radarIsStale || forecastIsStale;
+  }
+
+  function refreshOnResumeIfNeeded() {
+    if (document.hidden) {
+      return;
+    }
+
+    const now = new Date();
+    if (now.getTime() - lastResumeRefreshAt < RESUME_REFRESH_DEBOUNCE_MS) {
+      return;
+    }
+
+    if (!shouldRefreshForResume(now)) {
+      return;
+    }
+
+    lastResumeRefreshAt = now.getTime();
+    frameCache.clear();
+    loadCurrentView(true);
+  }
+
   function initTimelineScrub() {
     if (!timelineTrack) {
       return;
@@ -999,6 +1029,22 @@
       }
     }, 250)
   );
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      return;
+    }
+
+    refreshOnResumeIfNeeded();
+  });
+
+  window.addEventListener("focus", function () {
+    refreshOnResumeIfNeeded();
+  });
+
+  window.addEventListener("pageshow", function () {
+    refreshOnResumeIfNeeded();
+  });
 
   if ("serviceWorker" in navigator) {
     let reloading = false;
