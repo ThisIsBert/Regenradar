@@ -901,13 +901,13 @@
     loadForecast(Boolean(forceForecastReload));
   }
 
-  function shouldRefreshForResume(now) {
+  function isRadarStaleForResume(now) {
     const latestRadarSlot = new Date(getFiveMinuteSlot(now).getTime() - STEP_MS);
-    const radarIsStale = !currentAnchorTime || latestRadarSlot.getTime() > currentAnchorTime.getTime();
-    const forecastIsStale =
-      !forecastCache || now.getTime() - forecastCache.loadedAt >= FORECAST_TTL_MS;
+    return !currentAnchorTime || latestRadarSlot.getTime() > currentAnchorTime.getTime();
+  }
 
-    return radarIsStale || forecastIsStale;
+  function isForecastStaleForResume(now) {
+    return !forecastCache || now.getTime() - forecastCache.loadedAt >= FORECAST_TTL_MS;
   }
 
   function refreshOnResumeIfNeeded() {
@@ -916,17 +916,26 @@
     }
 
     const now = new Date();
+    const shouldReloadRadar = isRadarStaleForResume(now);
+    const shouldReloadForecast = isForecastStaleForResume(now);
+
     if (now.getTime() - lastResumeRefreshAt < RESUME_REFRESH_DEBOUNCE_MS) {
       return;
     }
 
-    if (!shouldRefreshForResume(now)) {
+    if (!shouldReloadRadar && !shouldReloadForecast) {
       return;
     }
 
     lastResumeRefreshAt = now.getTime();
-    frameCache.clear();
-    loadCurrentView(true);
+
+    if (shouldReloadRadar) {
+      loadCurrentRadarWithFilm();
+    }
+
+    if (shouldReloadForecast) {
+      loadForecast(true);
+    }
   }
 
   function initTimelineScrub() {
