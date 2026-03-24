@@ -513,7 +513,7 @@
       forecastSlots.appendChild(slotEl);
     });
 
-    alignForecastToCurrentSlot();
+    scheduleForecastAlignment();
   }
 
   function alignForecastToCurrentSlot() {
@@ -535,6 +535,20 @@
         behavior: "auto"
       });
     }
+  }
+
+  function scheduleForecastAlignment() {
+    alignForecastToCurrentSlot();
+
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        alignForecastToCurrentSlot();
+      });
+    });
+
+    window.setTimeout(function () {
+      alignForecastToCurrentSlot();
+    }, 120);
   }
 
   async function loadForecast(forceReload) {
