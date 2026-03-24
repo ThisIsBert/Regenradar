@@ -512,6 +512,29 @@
 
       forecastSlots.appendChild(slotEl);
     });
+
+    alignForecastToCurrentSlot();
+  }
+
+  function alignForecastToCurrentSlot() {
+    if (!forecastSlots) {
+      return;
+    }
+
+    forecastSlots.scrollTo({
+      left: 0,
+      behavior: "auto"
+    });
+
+    const currentSlot = forecastSlots.querySelector(".forecast-slot.current");
+
+    if (currentSlot) {
+      currentSlot.scrollIntoView({
+        block: "nearest",
+        inline: "start",
+        behavior: "auto"
+      });
+    }
   }
 
   async function loadForecast(forceReload) {
