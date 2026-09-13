@@ -1,7 +1,6 @@
 (function () {
   const WMS_BASE_URL = "https://maps.dwd.de/geoserver/wms";
   const BRIGHT_SKY_WEATHER_URL = "https://api.brightsky.dev/weather";
-  const NOW_LAYER = "dwd:Niederschlagsradar";
   const FILM_LAYER = "dwd:Radar_rv_product_1x1km_ger";
   const HEIDELBERG_CENTER = [49.39875, 8.67243];
   const INITIAL_BOUNDS = [
@@ -14,6 +13,7 @@
   const STEP_MS = STEP_MINUTES * 60 * 1000;
   const FILM_WINDOW_MINUTES = 60;
   const FILM_PARALLEL_REQUESTS = 5;
+  const RADAR_REQUEST_TIMEOUT_MS = 20000;
   const PULL_REFRESH_THRESHOLD = 90;
   const RADAR_PADDING_FACTOR = 0.08;
   const FORECAST_SLOT_COUNT = 14;
@@ -36,6 +36,7 @@
 
   const mapEl = document.getElementById("map");
   const loadingState = document.getElementById("loadingState");
+  const radarStatus = document.getElementById("radarStatus");
   const timelineTrack = document.getElementById("timelineTrack");
   const timelineMarker = document.getElementById("timelineMarker");
   const timelineStart = document.getElementById("timelineStart");
@@ -55,6 +56,9 @@
   let seekRafId = 0;
 
   let currentAnchorTime = null;
+  let lastSuccessfulRadarSlot = null;
+  let requestedRadarSlot = null;
+  let radarRunController = null;
   let currentFrames = [];
   let currentForecastRunId = 0;
   let forecastCache = null;
@@ -750,27 +754,56 @@
     return `${kind}|${timeIso}|${state.width}x${state.height}|${state.bbox}`;
   }
 
-  function preloadImageFrame(key, url, frameTime) {
+  function preloadImageFrame(key, url, frameTime, signal) {
     if (frameCache.has(key)) {
       return frameCache.get(key);
     }
 
     const promise = new Promise((resolve, reject) => {
       const img = new Image();
+      let settled = false;
+      const finish = function (error) {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        signal.removeEventListener("abort", onAbort);
+        img.onload = null;
+        img.onerror = null;
+        if (error) {
+          img.removeAttribute("src");
+          reject(error);
+        } else {
+          resolve({ url, frameTime });
+        }
+      };
+      const onAbort = function () {
+        finish(new Error("Radar request cancelled."));
+      };
+      const timeoutId = window.setTimeout(function () {
+        finish(new Error("Radar request timed out."));
+      }, RADAR_REQUEST_TIMEOUT_MS);
       img.onload = function () {
-        resolve({ url, frameTime });
+        finish();
       };
       img.onerror = function () {
-        reject(new Error(`Frame failed for ${key}`));
+        finish(new Error(`Frame failed for ${key}`));
       };
+      signal.addEventListener("abort", onAbort, { once: true });
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
       img.src = url;
     });
 
     frameCache.set(key, promise);
+    promise.catch(function () {
+      if (frameCache.get(key) === promise) frameCache.delete(key);
+    });
     return promise;
   }
 
-  function preloadRadarFrame(layer, frameTime, state) {
+  function preloadRadarFrame(layer, frameTime, state, signal) {
     const timeIso = formatIsoTime(frameTime);
     const key = cacheKey(layer, timeIso, state);
     const url = buildRadarUrl({
@@ -779,14 +812,18 @@
       bbox: state.bbox,
       width: state.width,
       height: state.height,
-      cacheBuster: frameTime.getTime()
+      // Re-request invalidated predictions from the server, not the browser cache.
+      cacheBuster: `${Date.now()}-${currentFilmRunId}`
     });
 
-    return preloadImageFrame(key, url, frameTime);
+    return preloadImageFrame(key, url, frameTime, signal);
   }
 
-  async function buildRadarFilmFramesParallel(runId, anchorTime, layer, onUpdate) {
+  async function buildRadarFilmFramesParallel(runId, anchorTime, layer, signal, onUpdate) {
     const timeline = createFilmTimeline(anchorTime);
+    const order = timeline.map(function (_time, index) { return index; }).sort(function (a, b) {
+      return Math.abs(timeline[a] - anchorTime) - Math.abs(timeline[b] - anchorTime);
+    });
     const state = getRadarRequestState();
     const frameByIndex = new Array(timeline.length);
     let nextIndex = 0;
@@ -808,7 +845,7 @@
 
     async function worker() {
       while (nextIndex < timeline.length) {
-        const index = nextIndex;
+        const index = order[nextIndex];
         nextIndex += 1;
 
         if (runId !== currentFilmRunId) {
@@ -816,7 +853,7 @@
         }
 
         try {
-          const frame = await preloadRadarFrame(layer, timeline[index], state);
+          const frame = await preloadRadarFrame(layer, timeline[index], state, signal);
           frameByIndex[index] = frame;
           loadedCount += 1;
           publish();
@@ -850,7 +887,11 @@
       return;
     }
 
-    const index = Math.max(0, Math.min(currentFrames.length - 1, Math.round(ratio * (currentFrames.length - 1))));
+    const target = currentAnchorTime.getTime() + (ratio * 2 - 1) * FILM_WINDOW_MINUTES * 60 * 1000;
+    const index = currentFrames.reduce(function (best, frame, candidate) {
+      return Math.abs(frame.frameTime.getTime() - target) < Math.abs(currentFrames[best].frameTime.getTime() - target)
+        ? candidate : best;
+    }, 0);
     showFrame(currentFrames[index], index, currentAnchorTime);
   }
 
@@ -870,17 +911,9 @@
     });
   }
 
-  function loadRadarImage(url) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = function () {
-        resolve();
-      };
-      img.onerror = function () {
-        reject(new Error("Radarbild konnte nicht geladen werden."));
-      };
-      img.src = url;
-    });
+  function setRadarStatus(message) {
+    radarStatus.textContent = message;
+    radarStatus.classList.toggle("hidden", !message);
   }
 
   async function loadCurrentRadarWithFilm() {
@@ -890,47 +923,69 @@
 
     currentFilmRunId += 1;
     const runId = currentFilmRunId;
+    if (radarRunController) radarRunController.abort();
+    radarRunController = new AbortController();
+    const signal = radarRunController.signal;
+    // Let cancelled cache promises remove themselves before starting the next run.
+    await Promise.resolve();
+    if (runId !== currentFilmRunId) return;
 
     const slot = new Date(getFiveMinuteSlot(new Date()).getTime() - STEP_MS);
+    requestedRadarSlot = slot;
     const state = getRadarRequestState();
-    const currentUrl = buildRadarUrl({
-      layer: NOW_LAYER,
-      bbox: state.bbox,
-      width: state.width,
-      height: state.height,
-      cacheBuster: slot.getTime()
+    frameCache.forEach(function (_promise, key) {
+      const time = Date.parse(key.split("|")[1]);
+      // Forecast frames can change between runs, even for the same valid time.
+      if (!lastSuccessfulRadarSlot || time >= lastSuccessfulRadarSlot.getTime() ||
+          time < slot.getTime() - FILM_WINDOW_MINUTES * 60 * 1000) frameCache.delete(key);
     });
 
     setTimelineReadyState(false);
-    currentAnchorTime = slot;
     currentFrames = [];
-    updateTimelineLabels(slot);
-    updateTimelineMarkerByTime(slot, slot);
+    setRadarStatus(radarOverlayLayer ? "Aktualisiere Radar – bisheriges Bild bleibt sichtbar." : "");
     loadingState.classList.remove("hidden");
 
     try {
-      await loadRadarImage(currentUrl);
-    } catch (_error) {
-      if (runId !== currentFilmRunId) {
-        return;
+      let currentFrame;
+      // The latest five-minute slot may not have reached the server yet.
+      for (let lag = 0; lag <= 2; lag += 1) {
+        if (signal.aborted) return;
+        try {
+          currentFrame = await preloadRadarFrame(FILM_LAYER, new Date(slot.getTime() - lag * STEP_MS), state, signal);
+          break;
+        } catch (error) {
+          if (signal.aborted) return;
+          if (lag === 2) throw error;
+        }
       }
-      return;
+      if (runId !== currentFilmRunId) return;
+      currentAnchorTime = currentFrame.frameTime;
+      lastSuccessfulRadarSlot = currentFrame.frameTime;
+      updateTimelineLabels(currentAnchorTime);
+      showFrame(currentFrame, 0, currentAnchorTime);
+      currentFrames = [currentFrame];
+      loadingState.classList.add("hidden");
+      const delayMessage = currentFrame.frameTime < slot ? `Radar verzögert: Stand ${formatTime(currentFrame.frameTime)}. ` : "";
+      setRadarStatus(`${delayMessage}Lade Zeitverlauf …`);
+      const frames = await buildRadarFilmFramesParallel(runId, currentAnchorTime, FILM_LAYER, signal, function (update) {
+        currentFrames = update.frames;
+        setTimelineReadyState(currentFrames.length > 1);
+      });
+      if (runId !== currentFilmRunId) return;
+      currentFrames = frames;
+      setTimelineReadyState(frames.length > 1);
+      setRadarStatus(delayMessage + (frames.length < createFilmTimeline(currentAnchorTime).length ? "Zeitverlauf unvollständig. Zum Wiederholen nach unten ziehen." : ""));
+    } catch (_error) {
+      if (runId !== currentFilmRunId) return;
+      setRadarStatus(radarOverlayLayer
+        ? "Radar konnte nicht aktualisiert werden. Angezeigtes Bild ist möglicherweise veraltet. Zum Wiederholen nach unten ziehen."
+        : "Radar gerade nicht verfügbar. Zum Wiederholen nach unten ziehen.");
+    } finally {
+      if (runId === currentFilmRunId) {
+        loadingState.classList.add("hidden");
+        radarRunController = null;
+      }
     }
-    showFrame({ url: currentUrl, frameTime: slot }, 0, slot);
-
-    if (runId !== currentFilmRunId) {
-      return;
-    }
-
-    const frames = await buildRadarFilmFramesParallel(runId, slot, FILM_LAYER);
-
-    if (runId !== currentFilmRunId) {
-      return;
-    }
-
-    currentFrames = frames;
-    loadingState.classList.add("hidden");
-    setTimelineReadyState(true);
   }
 
   function loadCurrentView(forceForecastReload) {
@@ -940,7 +995,10 @@
 
   function isRadarStaleForResume(now) {
     const latestRadarSlot = new Date(getFiveMinuteSlot(now).getTime() - STEP_MS);
-    return !currentAnchorTime || latestRadarSlot.getTime() > currentAnchorTime.getTime();
+    if (radarRunController) {
+      return Boolean(requestedRadarSlot && latestRadarSlot.getTime() > requestedRadarSlot.getTime());
+    }
+    return !lastSuccessfulRadarSlot || latestRadarSlot.getTime() > lastSuccessfulRadarSlot.getTime();
   }
 
   function isForecastStaleForResume(now) {
