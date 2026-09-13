@@ -54,6 +54,11 @@ body {
   color: var(--muted);
 }
 
+/* Keep the basemap quiet without changing radar or marker colours. */
+.map .leaflet-tile-pane {
+  filter: grayscale(1) contrast(0.8) brightness(1.15);
+}
+
 .map .leaflet-control-attribution a {
   color: #a9d8ff;
 }
