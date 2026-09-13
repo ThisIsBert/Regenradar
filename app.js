@@ -677,9 +677,8 @@
     map.setMaxZoom(startZoom + MAX_ZOOM_STEPS);
     map.setMaxBounds(startViewBounds);
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      subdomains: "abcd",
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       minZoom: startZoom,
       maxZoom: startZoom + MAX_ZOOM_STEPS
     }).addTo(map);

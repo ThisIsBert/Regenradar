@@ -1,12 +1,11 @@
-const CACHE_NAME = "regenradar-shell-v30";
-const OSM_TILE_CACHE = "regenradar-osm-v1";
+const CACHE_NAME = "regenradar-shell-v31";
 const VENDOR_CACHE = "regenradar-vendor-v1";
-const ACTIVE_CACHES = [CACHE_NAME, OSM_TILE_CACHE, VENDOR_CACHE];
+const ACTIVE_CACHES = [CACHE_NAME, VENDOR_CACHE];
 const SHELL_FILES = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js?v=20260913-loading-recovery",
+  "./app.js?v=20260913-osm-basemap",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -57,7 +56,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.hostname === "tile.openstreetmap.org") {
-    event.respondWith(cacheFirst(request, OSM_TILE_CACHE));
+    // Use the browser HTTP cache so OSM expiry and revalidation headers are honoured.
     return;
   }
 
