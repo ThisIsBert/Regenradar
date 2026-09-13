@@ -32,14 +32,20 @@
 
     <section class="forecast" aria-labelledby="forecastHeading">
       <div class="forecast-header">
-        <h2 id="forecastHeading" class="forecast-kicker">Heute</h2>
+        <h2 id="forecastHeading" class="forecast-kicker">Die nächsten Stunden</h2>
       </div>
       <div id="forecastStatus" class="forecast-status" role="status" aria-live="polite">Lade Prognose ...</div>
       <div id="forecastSlots" class="forecast-slots" aria-label="Stundenprognose"></div>
+      <details class="forecast-help">
+        <summary>So liest du die Kacheln</summary>
+        <p>Zeiten gelten für Heidelberg. Temperatur und Wolken zeigen den Stand am Beginn des Intervalls. Die Niederschlagsmenge in mm und die Wahrscheinlichkeit für mehr als 0,1 mm gelten für das ganze angegebene Intervall.</p>
+        <p>Ein Tropfen: 0,05 bis unter 0,4 mm; zwei: 0,4 bis unter 1,5 mm; drei: ab 1,5 mm. Ein Strich bedeutet weniger als 0,05 mm. Ein Fragezeichen kennzeichnet fehlende Daten. Die laufende Stunde ist mit „jetzt“ markiert; sie ist keine minutengenaue Messung.</p>
+      </details>
     </section>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
-  <script src="app.js?v=20260913-osm-basemap" defer></script>
+  <script src="forecast-model.js?v=20260913-hourly-v2" defer></script>
+  <script src="app.js?v=20260913-hourly-v2" defer></script>
 </body>
 </html>

@@ -37,7 +37,8 @@ function harness() {
     Date: Clock, URLSearchParams, AbortController, Image: FakeImage, navigator: {},
     document: { getElementById: element, addEventListener() {}, hidden: false },
     window: {
-      location: { search: '' }, addEventListener() {},
+      location: { search: '' }, addEventListener() {}, setInterval() {},
+      ForecastModel: require('../forecast-model.js'),
       setTimeout(fn) { timers.set(++timerId, fn); return timerId; },
       clearTimeout(id) { timers.delete(id); }
     },
