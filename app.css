@@ -76,6 +76,27 @@ body {
   display: none;
 }
 
+.radar-status {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: 0.75rem;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: calc(100% - 5rem);
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.4rem;
+  background: rgba(13, 42, 69, 0.92);
+  color: #fff;
+  font-size: 0.8rem;
+  z-index: 500;
+  pointer-events: none;
+}
+
+.radar-status.hidden {
+  display: none;
+}
+
 @keyframes spin {
   to {
     transform: translateX(-50%) rotate(360deg);
