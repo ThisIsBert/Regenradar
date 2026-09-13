@@ -12,7 +12,10 @@ Minimale statische PWA fuer ein datensparsames Regenradar mit festem Heidelberg-
 - Fehlgeschlagene Anfragen werden nicht behalten; fruehere Prognoseframes werden bei Aktualisierungen auch im Browser neu geladen
 - Kein Auto-Play: Navigation nur per Scrubbing ueber die Zeitleiste
 - Zeitleiste signalisiert Verfuegbarkeit (grau ohne Verlauf, blau ab zwei geladenen Bildern)
-- Kompakte Stundenprognose fuer Heidelberg mit Bright Sky (`Temperatur`, `Wolken`, `Regenwahrscheinlichkeit`, falls verfuegbar)
+- 14 explizite Stundenintervalle in Heidelberger Ortszeit; Temperatur/Bewoelkung am Intervallbeginn, Niederschlagsmenge und -wahrscheinlichkeit aus dem Datensatz am Intervallende (Bright Sky bilanziert die vorherige Stunde)
+- SVG-Tropfen ausschliesslich nach Menge, Wahrscheinlichkeit separat in Prozent, fehlende Werte als Fragezeichen; Symbole fuer Gewitter, Schnee, Schneeregen, Hagel und Nebel
+- Atmosphaerische Wolkenhintergruende mit kontrastreichen Beschriftungen; Tag/Nacht nach angenaehertem Sonnenstand fuer Heidelberg (NOAA: https://gml.noaa.gov/grad/solcalc/solareqns.PDF)
+- Rohdaten-Cache fuer 15 Minuten; Stundenwechsel werden bei sichtbarer App alle 30 Sekunden und bei Rueckkehr geprueft. Fehlgeschlagene Aktualisierungen behalten noch passende Daten mit einem Hinweis
 - Pull-to-refresh fuer manuelles Nachladen
 - PWA-Basis mit `manifest.webmanifest` und `sw.js` (App-Shell-Caching)
 - OSM-Tiles nutzen den Browser-HTTP-Cache gemaess den Server-Headern; Leaflet-CDN-Dateien werden lokal per Service Worker cache-first bedient
@@ -28,5 +31,6 @@ Minimale statische PWA fuer ein datensparsames Regenradar mit festem Heidelberg-
 
 ## Tests
 
-- `node --test tests/radar-loading.test.cjs` (Node.js, keine Zusatzpakete)
+- `node --test tests/*.test.cjs` (Node.js, keine Zusatzpakete)
 - Simuliert langsame/fehlgeschlagene Bildanfragen, Abbruch und Wiederholung, fehlende aktuelle Slots, progressive Zeitleiste und Cache-Aktualisierung
+- Prueft Stundenintervall-Zuordnung, Datenluecken, Menge/Wahrscheinlichkeit, besondere Wetterlagen, Sonnenstand, Sommerzeit und Prognose-Cache mit Fehlerbehandlung

@@ -1,11 +1,12 @@
-const CACHE_NAME = "regenradar-shell-v31";
+const CACHE_NAME = "regenradar-shell-v32";
 const VENDOR_CACHE = "regenradar-vendor-v1";
 const ACTIVE_CACHES = [CACHE_NAME, VENDOR_CACHE];
 const SHELL_FILES = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js?v=20260913-osm-basemap",
+  "./forecast-model.js?v=20260913-hourly-v2",
+  "./app.js?v=20260913-hourly-v2",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

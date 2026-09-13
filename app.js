@@ -18,21 +18,12 @@
   const RADAR_PADDING_FACTOR = 0.08;
   const FORECAST_SLOT_COUNT = 14;
   const FORECAST_STEP_HOURS = 1;
+  const FORECAST = window.ForecastModel;
   const FORECAST_TTL_MS = 15 * 60 * 1000;
   const RESUME_REFRESH_DEBOUNCE_MS = 1500;
   const FORECAST_QUERY_PARAMS = new URLSearchParams(window.location.search);
   const FORECAST_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("forecastPreview");
   const PRECIPITATION_PREVIEW_PARAM = FORECAST_QUERY_PARAMS.get("precipitationPreview");
-  const WEATHER_ICON_PATHS = {
-    clearDay: "./icons/weather/klar_tag.svg",
-    clearNight: "./icons/weather/klar_nacht.svg",
-    partlyCloudyDay: "./icons/weather/teils_bewoelkt_tag.svg",
-    partlyCloudyNight: "./icons/weather/teils_bewoelkt_nacht.svg",
-    cloudy: "./icons/weather/bewoelkt.svg",
-    rain: "./icons/weather/regen.svg",
-    thunderstorm: "./icons/weather/gewitter.svg",
-    fog: "./icons/weather/nebel.svg"
-  };
 
   const mapEl = document.getElementById("map");
   const loadingState = document.getElementById("loadingState");
@@ -62,6 +53,9 @@
   let currentFrames = [];
   let currentForecastRunId = 0;
   let forecastCache = null;
+  let forecastController = null;
+  let renderedForecastHour = null;
+  let lastForecastAttemptAt = 0;
   let lastResumeRefreshAt = 0;
 
   const frameCache = new Map();
@@ -81,15 +75,8 @@
     return date.toISOString().replace(/\.\d{3}Z$/, "Z");
   }
 
-  function formatDateParam(date) {
-    return date.toISOString().slice(0, 10);
-  }
-
   function formatForecastTime(date) {
-    return date.toLocaleTimeString("de-DE", {
-      hour: "2-digit",
-      minute: "2-digit"
-    });
+    return FORECAST.time(date);
   }
 
   function roundTemperature(value) {
@@ -97,20 +84,6 @@
       return "--";
     }
     return Math.round(value);
-  }
-
-  function formatProbability(value) {
-    if (typeof value !== "number" || Number.isNaN(value)) {
-      return null;
-    }
-    return `${Math.round(value)} %`;
-  }
-
-  function formatPrecipitation(value) {
-    if (typeof value !== "number" || Number.isNaN(value)) {
-      return null;
-    }
-    return `${value.toFixed(1)} mm/h`;
   }
 
   function describeCloudCover(value) {
@@ -133,8 +106,7 @@
     }
 
   function isNightTime(date) {
-    const hour = date.getHours();
-    return hour >= 20 || hour < 6;
+    return FORECAST.isNight(date, HEIDELBERG_CENTER[0], HEIDELBERG_CENTER[1]);
   }
 
   function getForecastCardTone(date) {
@@ -191,110 +163,26 @@
     return cover >= 65 ? "closed" : "open";
   }
 
-  function getPrecipitationDropCount(precipitation) {
-    if (typeof precipitation !== "number" || Number.isNaN(precipitation) || precipitation < 0.05) {
-      return 0;
-    }
-    if (precipitation < 0.4) {
-      return 1;
-    }
-    if (precipitation < 1.5) {
-      return 2;
-    }
-    return 3;
-  }
-
-  function getPrecipitationConfidence(probability) {
-    if (typeof probability !== "number" || Number.isNaN(probability)) {
-      return "medium";
-    }
-    if (probability < 15) {
-      return "none";
-    }
-    if (probability < 40) {
-      return "weak";
-    }
-    if (probability < 70) {
-      return "medium";
-    }
-    return "strong";
-  }
-
   function getForecastPrecipitationPresentation(entry) {
-    const precipitation =
-      typeof entry.precipitation === "number" && !Number.isNaN(entry.precipitation) ? Math.max(0, entry.precipitation) : null;
-    const probability =
-      typeof entry.precipitationProbability === "number" && !Number.isNaN(entry.precipitationProbability)
-        ? Math.max(0, Math.min(100, entry.precipitationProbability))
-        : null;
-    let dropCount = getPrecipitationDropCount(precipitation);
-    const confidence = getPrecipitationConfidence(probability);
-
-    if (dropCount === 0 && probability !== null) {
-      if (probability >= 75) {
-        dropCount = 2;
-      } else if (probability >= 35) {
-        dropCount = 1;
-      }
-    }
-
-    const probabilityLabel = formatProbability(probability);
-    const precipitationLabel = formatPrecipitation(precipitation);
-    const ariaParts = [];
-
-    if (dropCount === 0 || confidence === "none") {
-      ariaParts.push("kein relevanter Niederschlag");
-    } else {
-      ariaParts.push("Niederschlag");
-    }
-    if (probabilityLabel) {
-      ariaParts.push(`Wahrscheinlichkeit ${probabilityLabel}`);
-    }
-    if (precipitationLabel) {
-      ariaParts.push(`Menge ${precipitationLabel}`);
-    }
-
-    return {
-      dropCount,
-      confidence,
-      ariaLabel: ariaParts.join(", ")
-    };
+    return FORECAST.precipitation(entry);
   }
 
   function renderPrecipitationDrops(dropCount) {
-    return "💧".repeat(Math.max(0, dropCount));
+    if (dropCount === null) return '<span class="forecast-unknown">?</span>';
+    if (dropCount === 0) return '<span class="forecast-dry">–</span>';
+    return '<svg class="forecast-drop" viewBox="0 0 24 30" aria-hidden="true"><path d="M12 1C10 6 2 14 2 20a10 10 0 0 0 20 0C22 14 14 6 12 1Z" fill="currentColor"/></svg>'.repeat(dropCount);
   }
 
-  function getForecastIconPresentation(entry) {
-    const icon = String(entry.icon || "");
-    const condition = String(entry.condition || "");
-    const isNight = isNightTime(entry.timestamp);
-
-    if (icon.includes("thunderstorm") || condition.includes("thunder")) {
-      return { src: WEATHER_ICON_PATHS.thunderstorm, alt: "Gewitter" };
-    }
-    if (icon.includes("snow") || condition.includes("snow") || icon.includes("sleet")) {
-      return { src: WEATHER_ICON_PATHS.thunderstorm, alt: "Schauer" };
-    }
-    if (icon.includes("rain") || condition.includes("rain")) {
-      return { src: WEATHER_ICON_PATHS.rain, alt: "Regen" };
-    }
-    if (icon.includes("fog") || condition.includes("fog")) {
-      return { src: WEATHER_ICON_PATHS.fog, alt: "Nebel" };
-    }
-    if (icon.includes("partly-cloudy") || condition.includes("partly-cloudy")) {
-      return {
-        src: isNight ? WEATHER_ICON_PATHS.partlyCloudyNight : WEATHER_ICON_PATHS.partlyCloudyDay,
-        alt: "Teilweise bewölkt"
-      };
-    }
-    if (icon.includes("cloud") || icon.includes("overcast") || condition.includes("cloud")) {
-      return { src: WEATHER_ICON_PATHS.cloudy, alt: "Bewölkt" };
-    }
-    return {
-      src: isNight ? WEATHER_ICON_PATHS.clearNight : WEATHER_ICON_PATHS.clearDay,
-      alt: isNight ? "Klarer Nachthimmel" : "Sonnig"
+  function renderSpecialWeather(weather) {
+    if (!weather) return '';
+    const paths = {
+      storm: '<path d="M14 1 5 14h7l-2 9 10-14h-7Z" fill="#ffe081" stroke="none"/>',
+      snow: '<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M8 4l4 3 4-3M8 20l4-3 4 3"/>',
+      sleet: '<path d="M7 2v12M2 5l10 6M2 11l10-6M18 12c-1 3-4 5-4 7a4 4 0 0 0 8 0c0-2-3-4-4-7Z"/>',
+      hail: '<path d="M4 8h16M6 4h12"/><circle cx="5" cy="15" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="19" cy="15" r="2"/>',
+      fog: '<path d="M3 6h18M1 12h22M4 18h16"/>'
     };
+    return `<svg class="forecast-weather-symbol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">${paths[weather.symbol]}</svg><span>${weather.label}</span>`;
   }
 
   function setForecastStatus(message, hidden) {
@@ -307,22 +195,27 @@
   }
 
   function buildForecastUrl(date) {
+    const start = FORECAST.hourStart(date);
     const params = new URLSearchParams({
       lat: String(HEIDELBERG_CENTER[0]),
       lon: String(HEIDELBERG_CENTER[1]),
-      date: formatDateParam(date),
-      tz: "Europe/Berlin"
+      date: start.toISOString(),
+      last_date: new Date(start.getTime() + FORECAST_SLOT_COUNT * FORECAST.HOUR_MS).toISOString(),
+      tz: FORECAST.TIME_ZONE
     });
     return `${BRIGHT_SKY_WEATHER_URL}?${params.toString()}`;
   }
 
-  async function fetchForecastDay(date) {
-    const response = await fetch(buildForecastUrl(date));
-    if (!response.ok) {
-      throw new Error("Vorhersage konnte nicht geladen werden.");
+  async function fetchForecastDay(date, controller) {
+    const timer = window.setTimeout(function () { controller.abort(); }, 15000);
+    try {
+      const response = await fetch(buildForecastUrl(date), { signal: controller.signal });
+      if (!response.ok) throw new Error("Vorhersage konnte nicht geladen werden.");
+      const payload = await response.json();
+      return Array.isArray(payload.weather) ? payload.weather : [];
+    } finally {
+      window.clearTimeout(timer);
     }
-    const payload = await response.json();
-    return Array.isArray(payload.weather) ? payload.weather : [];
   }
 
   function normalizeForecastEntries(entries) {
@@ -422,8 +315,7 @@
       return null;
     }
 
-    const startTime = new Date(now);
-    startTime.setMinutes(0, 0, 0);
+    const startTime = FORECAST.hourStart(now);
 
     return Array.from({ length: FORECAST_SLOT_COUNT }, function (_unused, index) {
       const timestamp = new Date(startTime.getTime() + index * FORECAST_STEP_HOURS * 60 * 60 * 1000);
@@ -432,6 +324,7 @@
 
       return {
         timestamp,
+        endTime: new Date(timestamp.getTime() + FORECAST.HOUR_MS),
         temperature: 12 + index,
         cloudCover,
         precipitation:
@@ -453,164 +346,103 @@
   }
 
   function selectForecastEntries(entries, now) {
-    const startTime = new Date(now);
-    startTime.setMinutes(0, 0, 0);
-
-    const futureEntries = entries.filter(function (entry) {
-      return entry.timestamp.getTime() >= startTime.getTime();
-    });
-
-    if (!futureEntries.length) {
-      return [];
-    }
-
-    const selected = [futureEntries[0]];
-    let lastIncluded = futureEntries[0].timestamp.getTime();
-
-    for (let i = 1; i < futureEntries.length && selected.length < FORECAST_SLOT_COUNT; i += 1) {
-      const candidate = futureEntries[i];
-      const diffHours = (candidate.timestamp.getTime() - lastIncluded) / (60 * 60 * 1000);
-      if (diffHours >= FORECAST_STEP_HOURS - 0.01) {
-        selected.push(candidate);
-        lastIncluded = candidate.timestamp.getTime();
-      }
-    }
-
-    return selected;
+    return FORECAST.selectIntervals(entries, now, FORECAST_SLOT_COUNT);
   }
 
   function renderForecast(entries) {
+    const now = new Date();
+    const hour = FORECAST.hourStart(now).getTime();
+    const scrollLeft = renderedForecastHour === hour ? forecastSlots.scrollLeft : 0;
     clearForecastSlots();
-
-    entries.forEach(function (entry, index) {
+    renderedForecastHour = hour;
+    entries.forEach(function (entry) {
       const slotEl = document.createElement("article");
       const precipitation = getForecastPrecipitationPresentation(entry);
-      const cloudCover = typeof entry.cloudCover === "number" ? Math.max(0, Math.min(100, entry.cloudCover)) : null;
-      const cloudLabel = describeCloudCover(cloudCover);
+      const cloudCover = Number.isFinite(entry.cloudCover) ? Math.max(0, Math.min(100, entry.cloudCover)) : null;
       const cardTone = getForecastCardTone(entry.timestamp);
       const palette = getForecastCardPalette(cardTone, cloudCover);
       const skyVisual = getForecastSkyVisual(cardTone, cloudCover);
-      const skyPattern = getForecastSkyPattern(cloudCover);
-      const skyAriaLabel =
-        cloudCover === null ? "Wolkenlage unbekannt" : `${cloudLabel}, ${Math.round(cloudCover)} Prozent Wolken`;
-      slotEl.className = `forecast-slot forecast-slot-${cardTone}${index === 0 ? " current" : ""}`;
-      slotEl.setAttribute(
-        "aria-label",
-        `${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}: ${skyAriaLabel}, ${precipitation.ariaLabel}`
-      );
+      const special = FORECAST.specialWeather(entry);
+      const isCurrent = now >= entry.timestamp && now < entry.endTime;
+      const day = FORECAST.dayLabel(entry.timestamp, now);
+      const interval = FORECAST.intervalLabel(entry.timestamp, entry.endTime);
+      const skyLabel = cloudCover === null ? "Wolkenlage unbekannt" : `${describeCloudCover(cloudCover)}, ${Math.round(cloudCover)} Prozent Wolken`;
+      slotEl.className = `forecast-slot forecast-slot-${cardTone}${isCurrent ? " current" : ""}${cloudCover === null ? " forecast-slot-unknown" : ""}`;
+      slotEl.setAttribute("aria-label", `${day}, ${interval}${isCurrent ? ", laufende Stunde" : ""}: ${Number.isFinite(entry.temperature) ? `${roundTemperature(entry.temperature)} Grad` : "Temperatur unbekannt"}, ${skyLabel}${special ? `, ${special.label}` : ""}, ${precipitation.ariaLabel}`);
       slotEl.style.setProperty("--forecast-bg-top", palette.top);
       slotEl.style.setProperty("--forecast-bg-bottom", palette.bottom);
       slotEl.style.setProperty("--forecast-cloud-opacity", skyVisual.cloudOpacity);
       slotEl.style.setProperty("--forecast-cloud-density", skyVisual.cloudDensity);
       slotEl.style.setProperty("--forecast-haze-opacity", skyVisual.hazeOpacity);
       slotEl.style.setProperty("--forecast-glow-opacity", skyVisual.glowOpacity);
-
       slotEl.innerHTML = `
-        <div class="forecast-sky forecast-sky-${skyPattern}" aria-hidden="true"></div>
-        <p class="forecast-time">${index === 0 ? "Jetzt" : formatForecastTime(entry.timestamp)}</p>
-        <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
-        <div class="forecast-precipitation forecast-precipitation-${precipitation.confidence}" aria-hidden="true">
-          ${renderPrecipitationDrops(precipitation.dropCount)}
+        <div class="forecast-sky forecast-sky-${getForecastSkyPattern(cloudCover)}" aria-hidden="true"></div>
+        <div class="forecast-caption">
+          <p class="forecast-day">${day}${isCurrent ? " · jetzt" : ""}</p>
+          <p class="forecast-time">${interval}</p>
         </div>
-      `;
-
+        <p class="forecast-temp">${roundTemperature(entry.temperature)}&thinsp;&deg;</p>
+        <div class="forecast-condition">${renderSpecialWeather(special) || (cloudCover === null ? 'Wolken ?' : '')}</div>
+        <div class="forecast-rain-panel">
+          <div class="forecast-precipitation" aria-hidden="true">${renderPrecipitationDrops(precipitation.dropCount)}</div>
+          <p class="forecast-amount">${precipitation.amountLabel}</p>
+          <p class="forecast-probability">${precipitation.probabilityLabel}</p>
+        </div>`;
       forecastSlots.appendChild(slotEl);
     });
-
-    scheduleForecastAlignment();
-  }
-
-  function alignForecastToCurrentSlot() {
-    if (!forecastSlots) {
-      return;
-    }
-
-    forecastSlots.scrollTo({
-      left: 0,
-      behavior: "auto"
-    });
-
-    const currentSlot = forecastSlots.querySelector(".forecast-slot.current");
-
-    if (currentSlot) {
-      currentSlot.scrollIntoView({
-        block: "nearest",
-        inline: "start",
-        behavior: "auto"
-      });
-    }
-  }
-
-  function scheduleForecastAlignment() {
-    alignForecastToCurrentSlot();
-
-    window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        alignForecastToCurrentSlot();
-      });
-    });
-
-    window.setTimeout(function () {
-      alignForecastToCurrentSlot();
-    }, 120);
+    forecastSlots.scrollLeft = scrollLeft || 0;
   }
 
   async function loadForecast(forceReload) {
     const now = new Date();
     const previewEntries = buildPreviewForecastEntries(now);
-
     if (previewEntries) {
       renderForecast(previewEntries);
+      setForecastStatus("Vorschau mit Beispieldaten", false);
+      return;
+    }
+    if (forecastCache) renderForecast(selectForecastEntries(forecastCache.entries, now));
+    const requiredEnd = FORECAST.hourStart(now).getTime() + FORECAST_SLOT_COUNT * FORECAST.HOUR_MS;
+    if (!forceReload && forecastCache && now.getTime() - forecastCache.loadedAt < FORECAST_TTL_MS && forecastCache.requestedEnd >= requiredEnd) {
       setForecastStatus("", true);
       return;
     }
-
-    if (
-      !forceReload &&
-      forecastCache &&
-      now.getTime() - forecastCache.loadedAt < FORECAST_TTL_MS
-    ) {
-      renderForecast(forecastCache.entries);
-      setForecastStatus("", true);
-      return;
-    }
-
     currentForecastRunId += 1;
     const runId = currentForecastRunId;
-    setForecastStatus("Lade Prognose ...", false);
-
+    if (forecastController) forecastController.abort();
+    const controller = new AbortController();
+    forecastController = controller;
+    lastForecastAttemptAt = now.getTime();
+    setForecastStatus(forecastCache ? "Aktualisiere Prognose …" : "Lade Prognose …", false);
     try {
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      const results = await Promise.all([fetchForecastDay(now), fetchForecastDay(tomorrow)]);
-
-      if (runId !== currentForecastRunId) {
-        return;
-      }
-
-      const merged = normalizeForecastEntries(results[0].concat(results[1]));
-      const selected = selectForecastEntries(merged, now);
-
-      if (!selected.length) {
-        clearForecastSlots();
-        setForecastStatus("Keine Prognose verfuegbar.", false);
-        return;
-      }
-
-      forecastCache = {
-        entries: selected,
-        loadedAt: now.getTime(),
-        updatedAt: selected[0].timestamp
-      };
-
+      const records = normalizeForecastEntries(await fetchForecastDay(now, controller));
+      if (runId !== currentForecastRunId) return;
+      const selected = selectForecastEntries(records, new Date());
+      if (!selected.length) throw new Error("Keine Prognose verfügbar.");
+      forecastCache = { entries: records, loadedAt: Date.now(), requestedEnd: requiredEnd };
       renderForecast(selected);
       setForecastStatus("", true);
     } catch (_error) {
-      if (runId !== currentForecastRunId) {
-        return;
+      if (runId !== currentForecastRunId) return;
+      const retained = forecastCache ? selectForecastEntries(forecastCache.entries, new Date()) : [];
+      if (retained.length) {
+        renderForecast(retained);
+        setForecastStatus("Aktualisierung fehlgeschlagen – Prognose möglicherweise veraltet.", false);
+      } else {
+        clearForecastSlots();
+        setForecastStatus("Prognose gerade nicht verfügbar. Zum Wiederholen nach unten ziehen.", false);
       }
-      clearForecastSlots();
-      setForecastStatus("Prognose gerade nicht verfuegbar.", false);
+    } finally {
+      if (runId === currentForecastRunId) forecastController = null;
     }
+  }
+
+  function refreshForecastClock() {
+    if (document.hidden) return;
+    const now = new Date();
+    const changedHour = renderedForecastHour !== FORECAST.hourStart(now).getTime();
+    if (forecastCache && changedHour) renderForecast(selectForecastEntries(forecastCache.entries, now));
+    if (!forecastController && now.getTime() - lastForecastAttemptAt >= 60000 && (changedHour || isForecastStaleForResume(now))) loadForecast(false);
   }
 
   function getRadarRequestState() {
@@ -1001,7 +833,8 @@
   }
 
   function isForecastStaleForResume(now) {
-    return !forecastCache || now.getTime() - forecastCache.loadedAt >= FORECAST_TTL_MS;
+    const requiredEnd = FORECAST.hourStart(now).getTime() + FORECAST_SLOT_COUNT * FORECAST.HOUR_MS;
+    return !forecastCache || now.getTime() - forecastCache.loadedAt >= FORECAST_TTL_MS || forecastCache.requestedEnd < requiredEnd;
   }
 
   function refreshOnResumeIfNeeded() {
@@ -1011,7 +844,7 @@
 
     const now = new Date();
     const shouldReloadRadar = isRadarStaleForResume(now);
-    const shouldReloadForecast = isForecastStaleForResume(now);
+    const shouldReloadForecast = isForecastStaleForResume(now) || renderedForecastHour !== FORECAST.hourStart(now).getTime();
 
     if (now.getTime() - lastResumeRefreshAt < RESUME_REFRESH_DEBOUNCE_MS) {
       return;
@@ -1028,7 +861,7 @@
     }
 
     if (shouldReloadForecast) {
-      loadForecast(true);
+      loadForecast(false);
     }
   }
 
@@ -1117,6 +950,7 @@
   initMap();
   initTimelineScrub();
   loadCurrentView();
+  window.setInterval(refreshForecastClock, 30000);
 
   window.addEventListener(
     "resize",
